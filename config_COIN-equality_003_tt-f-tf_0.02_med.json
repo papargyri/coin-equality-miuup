@@ -1,5 +1,5 @@
 {
-    "run_name": "COIN-equality_003_tt-f-tf_0.02_slow",
+    "run_name": "COIN-equality_003_tt-f-tf_0.02_med",
     "description": "Testing options under constrained conditions",
     "scalar_parameters": {
         "alpha": 0.3,
@@ -109,22 +109,22 @@
     },
     "optimization_parameters": {
         "_description": "ITERATIVE REFINEMENT MODE: optimization_iterations is integer (number of iterations), initial_guess is scalar",
-        "max_evaluations": 20000,
+        "max_evaluations": 10000,
         "_max_evaluations": "Maximum number of objective function evaluations PER ITERATION",
-        "optimization_iterations": 2,
+        "optimization_iterations": 1,
         "_optimization_iterations": "INTEGER: Number of refinement iterations. Final iteration will have n_points_final_f control points if specified.",
         "optimize_time_points": false,
         "_optimize_time_points": "should we run an additional optimization at the end to jiggle time points?",
         "chebyshev_scaling_power": 1.5,
         "_chebyshev_scaling_power": "Power for Chebyshev node transformation (>1 concentrates points near start, <1 near end, =1 standard). Default 1.5 concentrates points in early years.",
-        "initial_guess_f": 0.05,
+        "initial_guess_f": 0.5,
         "_initial_guess_f": "SCALAR: Initial f value for both t_start and t_end in first iteration. Subsequent iterations use PCHIP interpolation from previous solution",
         "bounds_f": [
             0.0,
             1.0
         ],
         "_bounds_f": "Bounds for f (abatement fraction) as [min, max]. Default: [0.0, 1.0]",
-        "n_points_initial_f": 5,
+        "n_points_initial_f": 20,
         "_n_points_initial_f": "number of f control points in first iteration. Refinement base = (n_points_final_f - 1)^(1/(n_iterations - 1)). Omit to use default base=2.0",
         "n_points_final_f": 20,
         "_n_points_final_f": "number of f control points in final iteration. Refinement base = (n_points_final_f - 1)^(1/(n_iterations - 1)). Omit to use default base=2.0",
@@ -135,7 +135,7 @@
             1.0
         ],
         "_bounds_s": "Bounds for s (savings rate) as [min, max]. Default: [0.0, 1.0]. Example: [0.2, 0.3] constrains savings between 20-30%",
-        "n_points_initial_s": 5,
+        "n_points_initial_s": 20,
         "_n_points_final_s": "number of s control points in final iteration. Can differ from n_points_final_f to allow different temporal resolution for each variable.",
         "n_points_final_s": 20,
         "_algorithm_note": "Optional: specify NLopt algorithm. Omit to use default (LN_SBPLX). Local algorithms recommended for iterative refinement.",

@@ -90,8 +90,8 @@ def y_of_F_after_damage(F, Fmin, Fmax, y_mean_before_damage, omega_base, y_damag
 
     # Increment call counter and print progress periodically
     _call_counter += 1
-    if _call_counter % 10000 == 0:
-        print(f"  [y_of_F_after_damage call #{_call_counter}]")
+    if _call_counter % 100000 == 0:
+        print(f"  [y_of_F_after_damage call #{_call_counter/100000} x 100,000]")
 
     F = np.clip(np.asarray(F), Fmin, Fmax)
     is_scalar = F.ndim == 0
