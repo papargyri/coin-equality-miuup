@@ -91,7 +91,7 @@ def y_of_F_after_damage(F, Fmin, Fmax, y_mean_before_damage, omega_base, y_damag
     # Increment call counter and print progress periodically
     _call_counter += 1
     if _call_counter % 100000 == 0:
-        print(f"  [y_of_F_after_damage call #{_call_counter//100000} x 100,000]")
+        print(f"  [y_of_F_after_damage call count = {_call_counter//100000} x 100,000]")
 
     F = np.clip(np.asarray(F), Fmin, Fmax)
     is_scalar = F.ndim == 0
@@ -234,8 +234,8 @@ def segment_integral_with_cut(
     gini,
     xi,
     wi,
+    cut_at,
     branch=0,
-    cut_at="upper",
 ):
     """
     Compute ∫_{Flo}^{Fhi} [ y(F; Fmin, Fmax_for_clip, ...) - y(Fcut; Fmin, Fmax_for_clip, ...) ] dF
@@ -271,8 +271,8 @@ def segment_integral_with_cut(
         Gauss-Legendre quadrature weights.
     branch : int, optional
         Lambert W branch (default 0).
-    cut_at : str, optional
-        Semantic label: "upper" for taxation, "lower" for redistribution (default "upper").
+    cut_at : str
+        Semantic label: "upper" for taxation, "lower" for redistribution.
 
     Returns
     -------
@@ -311,7 +311,12 @@ def segment_integral_with_cut(
         branch=branch,
     )
 
-    integrand = y_vals - y_cut
+    # For redistribution (lower tail): y(Fcut) - y(F) gives positive values (poor have less income)
+    # For taxation (upper tail): y(F) - y(Fcut) gives positive values (rich have more income)
+    if cut_at == "lower":
+        integrand = y_cut - y_vals
+    else:
+        integrand = y_vals - y_cut
     integral_val = np.dot(w_nodes, integrand)
 
     return integral_val
@@ -380,8 +385,8 @@ def total_tax_top(
         gini=gini,
         xi=xi,
         wi=wi,
-        branch=branch,
         cut_at="upper",
+        branch=branch,
     )
 
     return integral_val - target_tax
@@ -447,8 +452,8 @@ def total_tax_bottom(
         gini=gini,
         xi=xi,
         wi=wi,
-        branch=branch,
         cut_at="lower",
+        branch=branch,
     )
 
     return integral_val - target_subsidy
@@ -597,8 +602,8 @@ def find_Fmin(y_mean_before_damage,
             branch=branch,
         )
 
-    # Bracket Fmin between something close to 0 and something less than 1
-    left = 0.000001
+    # Bracket Fmin between 0 and something less than 1
+    left = 0.0
     right = 0.999999
 
     f_left = f(left)
@@ -606,7 +611,11 @@ def find_Fmin(y_mean_before_damage,
 
     if f_left * f_right > 0:
         raise RuntimeError(
-            f"Root not bracketed: total_tax_bottom(0.000001)={f_left}, total_tax_bottom(0.999999)={f_right}"
+            f"Root not bracketed: total_tax_bottom(0.0)={f_left}, total_tax_bottom(0.999999)={f_right}\n"
+            f"  target_subsidy={target_subsidy}\n"
+            f"  y_mean_before_damage={y_mean_before_damage}\n"
+            f"  omega_base={omega_base}\n"
+            f"  uniform_redistribution={uniform_redistribution}"
         )
 
     sol = root_scalar(f, bracket=[left, right], method="brentq", xtol=tol)
