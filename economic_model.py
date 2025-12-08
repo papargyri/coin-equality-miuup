@@ -295,14 +295,30 @@ def calculate_tendencies(state, params, previous_step_values, xi, xi_edges, wi, 
 
         # Segment 3: High-income earners paying income-dependent tax [Fmax, 1]
         if 1.0 - Fmax > EPSILON:
+            climate_damage_amount_at_Fmax = stepwise_interpolate(Fmax, climate_damage_yi_prev, Fi_edges)
+            y_damaged_yi_max = y_gross * L_pareto_derivative(Fmax, gini) - climate_damage_amount_at_Fmax
+
+            # Set y_net_yi for bins above Fmax
+            for i in range(len(Fi_edges) - 1):
+                if Fi_edges[i] >= Fmax:
+                    # Bin completely above Fmax
+                    y_net_yi[i] = y_damaged_yi_max
+                elif Fi_edges[i] < Fmax <= Fi_edges[i+1]:
+                    # Bin containing Fmax - weight by fraction above Fmax
+                    fraction_above = (Fi_edges[i+1] - Fmax) / Fwi[i]
+                    y_net_yi[i] = y_damaged_yi_max * fraction_above
+
             max_y_net = y_of_F_after_damage(
                 Fmax, Fmin, Fmax,
-                y_gross * (1 - uniform_tax_rate), Omega_base,
-                y_damage_distribution_exponent, y_net_reference,
-                uniform_redistribution_amount, gini,
+                y_gross * (1 - uniform_tax_rate),
+                uniform_redistribution_amount, climate_damage_amount_at_Fmax, gini,
             )
             max_consumption = max_y_net * (1 - s)
             aggregate_utility += crra_utility_interval(Fmax, 1.0, max_consumption, eta)
+            climate_damage_max = max_y_net * Omega_base * (max_y_net/y_net_reference)**y_damage_distribution_exponent
+            climate_damage_max = np.clip(climate_damage_max, 0.0, max_y_net)
+            climate_damage_yi = climate_damage_yi + \
+                climate_damage_max * np.clip(Fi_edges[1:] - np.maximum(Fi_edges[:-1], Fmax), 0, Fwi) / Fwi
 
                 # Segment 2: Middle-income earners with uniform redistribution/tax [Fmin, Fmax]
         Climate_Damage_yi = None  # Climate damage at quadrature points for next timestep
