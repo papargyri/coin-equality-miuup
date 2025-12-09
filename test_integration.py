@@ -42,8 +42,7 @@ def main():
     print(f'  rho = {config.scalar_params.rho}')
     print(f'  fract_gdp = {config.scalar_params.fract_gdp}')
     print(f'\nTime-Dependent Parameters (at t=0):')
-    print(f'  gini(0) = {config.time_functions["gini"](0.0)}')
-    print(f'  s(0) = {config.time_functions["s"](0.0)}')
+    print(f'  gini(0) = {config.time_functions["gini"](0.0):.4f}')
 
     # Run integration
     print(f'\nRunning integration...')
@@ -64,7 +63,7 @@ def main():
     print(f'  Temperature change (ΔT):      {results["delta_T"][0]:.3f} °C')
     print(f'  Emissions rate (E):           {results["E"][0]:.3e} tCO2/yr')
     print(f'  Abatement fraction (μ):       {results["mu"][0]:.4f}')
-    print(f'  Effective Gini (G_eff):       {results["G_eff"][0]:.4f}')
+    print(f'  Gini index:                   {results["Gini"][0]:.4f}')
     print(f'  Mean utility (U):             {results["U"][0]:.6f}')
 
     print(f'\nFinal State (t={results["t"][-1]:.1f} yr):')
@@ -74,7 +73,7 @@ def main():
     print(f'  Temperature change (ΔT):      {results["delta_T"][-1]:.3f} °C')
     print(f'  Emissions rate (E):           {results["E"][-1]:.3e} tCO2/yr')
     print(f'  Abatement fraction (μ):       {results["mu"][-1]:.4f}')
-    print(f'  Effective Gini (G_eff):       {results["G_eff"][-1]:.4f}')
+    print(f'  Gini index:                   {results["Gini"][-1]:.4f}')
     print(f'  Mean utility (U):             {results["U"][-1]:.6f}')
 
     print(f'\nChanges over simulation:')

@@ -10,7 +10,7 @@ This module provides:
 
 import math
 import numpy as np
-from scipy.optimize import root_scalar, fsolve
+from scipy.optimize import root_scalar, fsolve, newton
 from constants import EPSILON, LOOSE_EPSILON, MAX_ITERATIONS
 
 
@@ -160,6 +160,7 @@ def find_Fmax_analytical(
     uniform_redistribution,
     target_tax,
     tol=LOOSE_EPSILON,
+    initial_guess=None,
 ):
     """
     Find Fmax in [Fmin, 1) such that progressive taxation yields target_tax.
@@ -193,6 +194,8 @@ def find_Fmax_analytical(
         Target tax amount to collect.
     tol : float, optional
         Tolerance for root finding (default LOOSE_EPSILON).
+    initial_guess : float, optional
+        Initial guess for Fmax from previous timestep (speeds up convergence).
 
     Returns
     -------
@@ -216,10 +219,29 @@ def find_Fmax_analytical(
 
         return tax_revenue - target_tax
 
-    # Bracket Fmax between Fmin and just below 1
+    # Use secant method if we have a good initial guess, otherwise fall back to brentq
+    if initial_guess is not None and Fmin < initial_guess < 1.0 - EPSILON:
+        # First, check if the initial guess is already very close to the solution
+        f_guess = tax_revenue_minus_target(initial_guess)
+        if abs(f_guess) < tol:
+            return initial_guess
+
+        # Use secant method with initial guess
+        try:
+            # Secant needs two starting points; use initial_guess and a small perturbation
+            x0 = initial_guess
+            x1 = initial_guess + 0.001 * (1.0 - EPSILON - Fmin)  # Small step towards the middle
+            x1 = np.clip(x1, Fmin + EPSILON, 1.0 - EPSILON)
+
+            sol = root_scalar(tax_revenue_minus_target, method='secant', x0=x0, x1=x1, xtol=tol, maxiter=50)
+            if sol.converged and Fmin <= sol.root <= 1.0 - EPSILON:
+                return sol.root
+        except (ValueError, RuntimeError):
+            pass  # Fall through to bracketing method
+
+    # Fall back to bracketing method if secant fails or no initial guess
     left = Fmin
     right = 1.0 - EPSILON
-
     f_left = tax_revenue_minus_target(left)
     f_right = tax_revenue_minus_target(right)
 
@@ -247,6 +269,7 @@ def find_Fmin_analytical(
     uniform_redistribution,
     target_subsidy,
     tol=LOOSE_EPSILON,
+    initial_guess=None,
 ):
     """
     Find Fmin in (0, 1) such that progressive redistribution yields target_subsidy.
@@ -278,6 +301,8 @@ def find_Fmin_analytical(
         Target subsidy amount to distribute.
     tol : float, optional
         Tolerance for root finding (default LOOSE_EPSILON).
+    initial_guess : float, optional
+        Initial guess for Fmin from previous timestep (speeds up convergence).
 
     Returns
     -------
@@ -300,10 +325,29 @@ def find_Fmin_analytical(
 
         return subsidy_amount - target_subsidy
 
-    # Bracket Fmin between 0 and something less than 1
+    # Use secant method if we have a good initial guess, otherwise fall back to brentq
+    if initial_guess is not None and 0.0 < initial_guess < 0.999999:
+        # First, check if the initial guess is already very close to the solution
+        f_guess = subsidy_minus_target(initial_guess)
+        if abs(f_guess) < tol:
+            return initial_guess
+
+        # Use secant method with initial guess
+        try:
+            # Secant needs two starting points; use initial_guess and a small perturbation
+            x0 = initial_guess
+            x1 = initial_guess + 0.001 * 0.999999  # Small step towards the middle
+            x1 = np.clip(x1, EPSILON, 0.999999)
+
+            sol = root_scalar(subsidy_minus_target, method='secant', x0=x0, x1=x1, xtol=tol, maxiter=50)
+            if sol.converged and 0.0 <= sol.root <= 0.999999:
+                return sol.root
+        except (ValueError, RuntimeError):
+            pass  # Fall through to bracketing method
+
+    # Fall back to bracketing method if secant fails or no initial guess
     left = 0.0
     right = 0.999999
-
     f_left = subsidy_minus_target(left)
     f_right = subsidy_minus_target(right)
 
