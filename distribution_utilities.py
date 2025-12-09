@@ -35,7 +35,16 @@ def G_from_a(a):
 def L_pareto(F, G):
     """Lorenz curve at F for Pareto-Lorenz distribution with Gini coefficient G."""
     a = a_from_G(G)
-    return 1.0 - (1.0 - F)**(1.0 - 1.0/a)
+    F_arr = np.asarray(F)
+    scalar_input = np.ndim(F) == 0
+
+    # Clip F to avoid numerical issues when F is very close to 1.0
+    # When F = 1.0, L should equal 1.0 (everyone has accumulated all income)
+    F_clipped = np.clip(F_arr, 0.0, 1.0 - EPSILON)
+    exponent = 1.0 - 1.0/a
+    result = 1.0 - (1.0 - F_clipped)**exponent
+
+    return result[()] if scalar_input else result
 
 
 def F_pareto(L, G):
