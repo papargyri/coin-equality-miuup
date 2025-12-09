@@ -134,6 +134,10 @@ def calculate_tendencies(state, params, climate_damage_yi_prev, Omega_prev, xi, 
     if not income_dependent_damage_distribution:
         y_damage_distribution_exponent = 0.0
 
+    # Transform xi into F space. Map [-1,1] to [0,1]
+    Fi = (xi + 1.0)/2.0
+    # compute edges in F space
+    Fi_edges = (xi_edges + 1.0)/2.0
     # Transform quadrature weights to F space [0,1] (wi is for xi space [-1,1])
     Fwi = wi / 2.0
 
@@ -164,6 +168,13 @@ def calculate_tendencies(state, params, climate_damage_yi_prev, Omega_prev, xi, 
 
     Climate_damage = Omega_prev * Y_gross
     climate_damage = Omega_prev * y_gross # per capita climate damage
+
+    # Scale climate_damage_yi_prev so its sum matches current aggregate climate_damage
+    sum_climate_damage_yi_prev = np.sum(Fwi * climate_damage_yi_prev)
+    if sum_climate_damage_yi_prev > EPSILON:
+        climate_damage_yi_prev_scaled = climate_damage_yi_prev * climate_damage / sum_climate_damage_yi_prev
+    else:
+        climate_damage_yi_prev_scaled = climate_damage_yi_prev
 
     # Eq 2.2: Temperature change from cumulative emissions
     delta_T = k_climate * Ecum
@@ -261,10 +272,7 @@ def calculate_tendencies(state, params, climate_damage_yi_prev, Omega_prev, xi, 
         # Now we are going to do the income dependent part of the code
         # To simplify we are going to shift the calculation to discrete intervals of population
         # governed by the Gaussian Laegendre nodes and weights, xi and wi
-       
-        # Transform xi into F space. Map [-1,1] to [0,1]
-        Fi = (xi + 1.0)/2.0
-        Fi_edges = (xi_edges + 1.0)/2.0
+    
 
         # For income-dependent tax, find Fmax such that tax matches target
         if income_dependent_tax_policy:
@@ -278,7 +286,7 @@ def calculate_tendencies(state, params, climate_damage_yi_prev, Omega_prev, xi, 
             # tax_amount = lorenz_part - damage_part
 
             Fmax = find_Fmax_analytical(
-                Fmin, y_gross, gini, climate_damage_yi_prev, Fi_edges,
+                Fmin, y_gross, gini, climate_damage_yi_prev_scaled, Fi_edges,
                 uniform_redistribution_amount, target_tax=tax_amount,
             )
         else:
@@ -291,7 +299,7 @@ def calculate_tendencies(state, params, climate_damage_yi_prev, Omega_prev, xi, 
         if income_redistribution and income_dependent_redistribution_policy:
             uniform_redistribution_amount = 0.0
             Fmin = find_Fmin_analytical(
-                y_gross, gini, climate_damage_yi_prev, Fi_edges,
+                y_gross, gini, climate_damage_yi_prev_scaled, Fi_edges,
                 0.0, target_subsidy=redistribution_amount,
             )
         else:
@@ -315,7 +323,7 @@ def calculate_tendencies(state, params, climate_damage_yi_prev, Omega_prev, xi, 
 
         # Segment 1: Low-income earners receiving income-dependent redistribution [0, Fmin]
         if Fmin > EPSILON:
-            climate_damage_amount_at_Fmin = stepwise_interpolate(Fmin, climate_damage_yi_prev, Fi_edges)
+            climate_damage_amount_at_Fmin = stepwise_interpolate(Fmin, climate_damage_yi_prev_scaled, Fi_edges)
             y_damaged_yi_min = y_gross * L_pareto_derivative(Fmin, gini) - climate_damage_amount_at_Fmin
 
             # Set y_net_yi for bins below Fmin
@@ -350,7 +358,7 @@ def calculate_tendencies(state, params, climate_damage_yi_prev, Omega_prev, xi, 
 
         # Segment 3: High-income earners paying income-dependent tax [Fmax, 1]
         if 1.0 - Fmax > EPSILON:
-            climate_damage_amount_at_Fmax = stepwise_interpolate(Fmax, climate_damage_yi_prev, Fi_edges)
+            climate_damage_amount_at_Fmax = stepwise_interpolate(Fmax, climate_damage_yi_prev_scaled, Fi_edges)
             y_damaged_yi_max = y_gross * L_pareto_derivative(Fmax, gini) - climate_damage_amount_at_Fmax
 
             # Set y_net_yi for bins above Fmax
@@ -389,7 +397,7 @@ def calculate_tendencies(state, params, climate_damage_yi_prev, Omega_prev, xi, 
             y_vals_Fi = y_of_F_after_damage(
                 Fi, Fmin, Fmax,
                 y_gross * (1 - uniform_tax_rate),
-                uniform_redistribution_amount, climate_damage_yi_prev, gini,
+                uniform_redistribution_amount, climate_damage_yi_prev_scaled, gini,
             )
 
             # Calculate climate damage at quadrature points for next timestep
