@@ -78,34 +78,45 @@ where:
 
 ### Calculation Order
 
-The differential equation solver uses an iterative convergence algorithm to resolve the circular dependency between climate damage and income distribution. Variables are calculated in this order:
+The differential equation solver uses climate damage from the previous timestep to avoid circular dependencies. Variables are calculated in this order:
 
-**Pre-iteration Setup:**
-1. **Y_gross** from K, L, A, α (Eq 1.1: Cobb-Douglas production)
-2. **ΔT** from Ecum, k_climate (Eq 2.2: temperature from cumulative emissions)
-3. **y_gross** from Y_gross, L (mean per-capita gross income before climate damage)
-4. **Omega_base** from ΔT, psi1, psi2 (base climate damage from temperature, capped at 1.0 - EPSILON)
-5. **Gauss-Legendre quadrature nodes** (xi, wi) for numerical integration (N_QUAD = 32 points)
+**Setup and Previous Damage:**
+1. **Fwi** = wi / 2.0 (transform quadrature weights from xi-space [-1,1] to F-space [0,1])
+2. **Climate_Damage_prev** from previous timestep's Climate_Damage_yi using Fwi-weighted sum
+3. **climate_damage_yi_prev** = Climate_Damage_prev / L (per-capita damage at each quadrature point)
 
-**Iterative Convergence Loop** (until |Omega - Omega_prev| < LOOSE_EPSILON):
-6. **redistribution_amount** from fract_gdp, f, y_gross, Omega (total per-capita redistribution)
-7. **Fmin, uniform_redistribution_amount** from income_dependent_redistribution_policy:
-   - If income-dependent: find_Fmin() computes critical rank, uniform_redistribution = 0
+**Current Timestep Production:**
+4. **Y_gross** from K, L, A, α (Eq 1.1: Cobb-Douglas production)
+5. **ΔT** from Ecum, k_climate (Eq 2.2: temperature from cumulative emissions)
+6. **y_gross** from Y_gross, L (mean per-capita gross income before climate damage)
+7. **Omega** = Climate_Damage_prev / Y_gross (climate damage fraction using previous damage)
+8. **Omega_base** from ΔT, psi1, psi2 (base climate damage from temperature for next timestep)
+
+**Tax and Redistribution (using previous damage):**
+9. **redistribution_amount** from fract_gdp, f, y_gross, Omega (total per-capita redistribution)
+10. **Fmin, uniform_redistribution_amount** from income_dependent_redistribution_policy:
+   - If income-dependent: find_Fmin_analytical() computes critical rank using analytical Lorenz integrals
    - If uniform: Fmin = 0, uniform_redistribution = redistribution_amount
-8. **Fmax, uniform_tax_rate** from income_dependent_tax_policy:
-   - If income-dependent: find_Fmax() computes critical rank, uniform_tax_rate = 0
-   - If uniform: Fmax = 1.0, uniform_tax_rate = fract_gdp * (1 - Omega)
-9. **Segment-wise integration** over income distribution [0, Fmin), [Fmin, Fmax), [Fmax, 1]:
-   - **aggregate_damage_fraction** from climate_damage_integral() and damage_per_capita calculations
-   - **aggregate_utility** from crra_utility_integral_with_damage() and crra_utility_interval()
-10. **Omega** from aggregate_damage_fraction (already a dimensionless fraction, no division needed)
-11. **Omega_base adjustment** if not income_dependent_aggregate_damage:
-    - Apply under-relaxation (relaxation = 0.1) to prevent oscillation
-    - Use Aitken acceleration when monotonic convergence is detected (after iteration 3)
-    - Handle special case when Omega_base < EPSILON to avoid division by zero
-12. **Convergence check**: if |Omega - Omega_prev| < LOOSE_EPSILON and |Omega_base/Omega_base_prev - 1| < LOOSE_EPSILON, exit loop
+11. **Fmax, uniform_tax_rate** from income_dependent_tax_policy:
+   - If income-dependent: find_Fmax_analytical() computes critical rank using analytical Lorenz integrals
+   - If uniform: Fmax = 1.0, uniform_tax_rate = (abateCost + redistribution) / (y_gross * (1 - Omega))
 
-**Post-convergence Calculations:**
+**Segment-wise Integration (F-space with Fi_edges):**
+12. **Fi, Fi_edges** = transform xi, xi_edges from [-1,1] to [0,1]
+13. **Segment 1 [0, Fmin]**: Low-income earners receiving redistribution
+   - Set y_net_yi for bins below/containing Fmin with proper weighting
+   - Calculate aggregate_utility using crra_utility_interval()
+   - Calculate climate_damage_yi for next timestep
+14. **Segment 3 [Fmax, 1]**: High-income earners paying progressive tax
+   - Set y_net_yi for bins above/containing Fmax with proper weighting
+   - Calculate aggregate_utility using crra_utility_interval()
+   - Calculate climate_damage_yi for next timestep
+15. **Segment 2 [Fmin, Fmax]**: Middle-income earners with uniform tax/redistribution
+   - Calculate y_vals_Fi at quadrature points using y_of_F_after_damage()
+   - Set y_net_yi and climate_damage_yi for bins in/overlapping [Fmin, Fmax]
+   - Calculate aggregate_utility using Gauss-Legendre quadrature
+
+**Downstream Calculations:**
 13. **Y_damaged** from Y_gross, Omega (Eq 1.3: production after climate damage)
 14. **y_damaged** from y_gross, Omega (per-capita gross production after climate damage)
 15. **AbateCost** from f, fract_gdp, Y_damaged (Eq 1.5: abatement expenditure)
@@ -161,13 +172,12 @@ This integration is performed using three-segment Gauss-Legendre quadrature over
 - Fmin = maximum income rank receiving targeted redistribution
 - Fmax = minimum income rank paying progressive taxation
 
-**Convergence Algorithm:**
-When `income_dependent_aggregate_damage = False`, the calculation uses an iterative algorithm:
-1. Start with initial Omega_base from temperature
-2. Compute aggregate damage fraction from income distribution with damage ω(y)
-3. Update Omega = aggregate_damage_fraction
-4. Adjust Omega_base to match Omega_target using under-relaxation and Aitken acceleration
-5. Repeat until convergence
+**Lagged Damage Approach:**
+The model uses climate damage from the previous timestep to avoid circular dependencies:
+1. Start with Omega_base from temperature: Ω_base = psi1·ΔT + psi2·ΔT²
+2. Use previous timestep's income distribution to compute current damage
+3. This allows explicit (non-iterative) calculation of income distribution
+4. Climate damage is updated each timestep based on the previous period's economic state
 
 **Physical Interpretation:**
 - As `y_damage_distribution_exponent → 0`: damage becomes uniform across income (no income effect)
@@ -176,7 +186,7 @@ When `income_dependent_aggregate_damage = False`, the calculation uses an iterat
 - As `ΔT → 0`: `Ω_base → 0` and `Ω → 0` (no damage)
 
 **Implementation:**
-The damage integrals are computed using Gauss-Legendre quadrature (N_QUAD = 32 points) with the `climate_damage_integral()` function from `utility_integrals.py`. Income at each quadrature point is computed using `y_of_F_after_damage()`, which solves the implicit equation accounting for damage, taxes, and redistribution. For the special case where `y_damage_distribution_exponent = 0.5`, an analytic solution using the quadratic formula is employed for computational efficiency. For other exponent values, numerical root finding via scipy.optimize.fsolve is used.
+The damage integrals are computed using Gauss-Legendre quadrature (N_QUAD = 32 points) with analytical Lorenz curve integration and stepwise functions from `distribution_utilities.py`. Income at each quadrature point is computed using `y_of_F_lagged_damage()`, which uses damage from the previous timestep, eliminating the need for iterative convergence. The critical ranks Fmin and Fmax are found using `find_Fmin_analytical()` and `find_Fmax_analytical()`, which employ closed-form Lorenz integrals for ~1000× speedup over numerical quadrature.
 
 **Eq. (1.3) - Damaged Production:**
 ```
@@ -334,12 +344,12 @@ The model now supports `f_gdp >= 1` with special handling that disables redistri
 - Critical income ranks (Fmin, Fmax) define segments for progressive taxation/redistribution
 
 **Implementation Details:**
-The model uses an iterative convergence algorithm to consistently compute:
+The model uses a lagged damage approach for explicit (non-iterative) calculation:
 
 1. **Climate Damage with Income Distribution**:
-   - Uses previous time step's income distribution to avoid circular dependency
+   - Uses previous timestep's damage to compute current income distribution
    - Integrates damage over three income segments: [0, Fmin), [Fmin, Fmax), [Fmax, 1]
-   - Converges to self-consistent Omega value that accounts for redistribution effects
+   - Updates Omega for use in next timestep, eliminating within-timestep convergence loops
 
 2. **Critical Income Ranks**:
    - **Fmin**: Maximum rank receiving income-dependent redistribution (if enabled)
@@ -448,10 +458,10 @@ The system begins at the background inequality level.
 
 **Climate Damage Interaction:**
 
-Climate damage is computed iteratively using the income distribution from the previous time step to avoid circular dependencies. The algorithm integrates damage over the income distribution accounting for:
+Climate damage is computed using the income distribution from the previous timestep to avoid circular dependencies. The algorithm integrates damage over the income distribution accounting for:
 - Income-dependent damage function: damage(y) = omega_base * (y / y_net_reference)^y_damage_distribution_exponent
 - Progressive taxation and targeted redistribution via critical ranks (Fmin, Fmax)
-- Analytic solution (quadratic formula) for exponent = 0.5, or numerical root finding (scipy.optimize.fsolve) for other exponents to solve implicit income equations
+- Analytical Lorenz integrals for finding critical ranks (Fmin, Fmax) with ~1000× speedup over numerical quadrature
 
 The effective income distribution evolves through:
 ```
@@ -556,7 +566,7 @@ The model has 5 boolean switches controlling different policy features. Three ar
    - **Only meaningful when parent is true**
    - Controls how aggregate damage is calculated when damage varies by income
    - When true: Aggregate damage computed directly from income distribution
-   - When false: Iteratively find `Omega_base` that produces target aggregate damage
+   - When false: Use uniform `Omega_base` from temperature (no income-dependent adjustment)
    - Code enforces: Only checked when `income_dependent_damage_distribution` is true
 
 5. **`income_dependent_redistribution_policy`** (boolean, default: false)
@@ -609,7 +619,7 @@ To maintain analytical tractability:
 
 ## Implementation: Key Functions
 
-The `income_distribution.py` module provides the core mathematical functions for calculating income distribution metrics and effective Gini indices under different allocation scenarios.
+The `distribution_utilities.py` module provides the core mathematical functions for calculating income distribution, utility integration, and stepwise interpolation over quadrature intervals.
 
 ### Basic Conversion Functions
 
@@ -631,10 +641,15 @@ The `income_distribution.py` module provides the core mathematical functions for
 **Income After Damage:**
 - **`y_of_F_after_damage(F, Fmin, Fmax, y_mean_before_damage, omega_base, y_damage_distribution_exponent, y_net_reference, uniform_redistribution, gini, branch=0)`** - Computes income at rank F accounting for climate damage. For exponent = 0.5, uses analytic solution via quadratic formula. For other exponents, uses numerical root finding (scipy.optimize.fsolve) to solve the implicit equation where damage depends on income which depends on damage. Returns array of incomes corresponding to input ranks.
 
-**Critical Rank Finding:**
-- **`find_Fmax(y_mean_before_damage, Omega_base, y_damage_distribution_exponent, y_net_reference, uniform_redistribution, gini, xi, wi, target_tax, branch=0, tol=LOOSE_EPSILON)`** - Finds the minimum income rank that pays progressive taxation. Uses root finding to match the target tax revenue by integrating over ranks [Fmax, 1]. Returns Fmax ∈ [0, 1].
+**Critical Rank Finding (Analytical):**
+- **`find_Fmax_analytical(Fmin, y_gross, gini, damage_yi, Fi_edges, uniform_redistribution, target_tax, tol=LOOSE_EPSILON)`** - Finds the minimum income rank that pays progressive taxation using analytical Lorenz curve integration. Uses stepwise_interpolate() and stepwise_integrate() for damage terms. Much faster than quadrature-based approach. Returns Fmax ∈ [0, 1].
 
-- **`find_Fmin(y_mean_before_damage, Omega_base, y_damage_distribution_exponent, y_net_reference, uniform_redistribution, gini, xi, wi, target_subsidy, branch=0, tol=LOOSE_EPSILON)`** - Finds the maximum income rank that receives targeted redistribution. Uses root finding to match the target subsidy amount by integrating over ranks [0, Fmin]. Returns Fmin ∈ [0, 1].
+- **`find_Fmin_analytical(y_gross, gini, damage_yi, Fi_edges, uniform_redistribution, target_subsidy, tol=LOOSE_EPSILON)`** - Finds the maximum income rank that receives targeted redistribution using analytical Lorenz curve integration. Uses stepwise functions for damage terms. Returns Fmin ∈ [0, 1].
+
+**Stepwise Interpolation and Integration:**
+- **`stepwise_interpolate(F, yi, Fi_edges)`** - Evaluates a stepwise (piecewise constant) function at point(s) F. Returns yi[i] for F in [Fi_edges[i], Fi_edges[i+1]).
+
+- **`stepwise_integrate(F0, F1, yi, Fi_edges)`** - Integrates a stepwise function from F0 to F1. Handles bins that partially overlap the integration range.
 
 **Numerical Integration:**
 - **`crra_utility_integral_with_damage(F0, F1, Fmin, Fmax_for_clip, y_mean_before_damage, omega_base, y_damage_distribution_exponent, y_net_reference, uniform_redistribution, gini, eta, s, xi, wi, branch=0)`** - Integrates CRRA utility over income ranks [F0, F1] using Gauss-Legendre quadrature. Accounts for climate damage via y_of_F_after_damage().
@@ -646,16 +661,27 @@ The `income_distribution.py` module provides the core mathematical functions for
 ### Usage Example
 
 ```python
-from income_distribution import y_of_F_after_damage, find_Fmax, find_Fmin
-from utility_integrals import crra_utility_integral_with_damage
+from distribution_utilities import (
+    y_of_F_after_damage,
+    find_Fmax_analytical,
+    find_Fmin_analytical,
+    stepwise_interpolate,
+    stepwise_integrate,
+    crra_utility_integral_with_damage
+)
 from scipy.special import roots_legendre
+import numpy as np
 
 # Setup quadrature
-xi, wi = roots_legendre(100)
+xi, wi = roots_legendre(32)
+xi_edges = -1.0 + np.concatenate(([0.0], np.cumsum(wi)))
+Fi_edges = (xi_edges + 1.0) / 2.0
 
-# Find critical ranks
-Fmax = find_Fmax(y_mean, Omega_base, y_scale, uniform_redist, gini, xi, wi, target_tax=1000.0)
-Fmin = find_Fmin(y_mean, Omega_base, y_scale, uniform_redist, gini, xi, wi, target_subsidy=500.0)
+# Find critical ranks using analytical method
+Fmax = find_Fmax_analytical(Fmin, y_gross, gini, damage_yi, Fi_edges,
+                            uniform_redist, target_tax=1000.0)
+Fmin = find_Fmin_analytical(y_gross, gini, damage_yi, Fi_edges,
+                            uniform_redist, target_subsidy=500.0)
 
 # Compute utility in middle segment
 U_middle = crra_utility_integral_with_damage(Fmin, Fmax, Fmin, Fmax, y_mean,
@@ -832,7 +858,7 @@ The project includes unit tests that validate the analytical solutions for key m
 
 ### Unit Test for Equation (1.2): Climate Damage
 
-**Note:** The current model uses a power-law damage function ω(y) = Ω_base · (y / y_net_reference)^y_damage_distribution_exponent with iterative numerical integration. The file `unit_test_eq1.2.py` and earlier analytical approaches have been deprecated and replaced by the current implementation.
+**Note:** The current model uses a power-law damage function ω(y) = Ω_base · (y / y_net_reference)^y_damage_distribution_exponent with lagged damage calculation and analytical Lorenz integrals. The file `unit_test_eq1.2.py` and earlier analytical approaches have been deprecated and replaced by the current implementation.
 
 **Current Numerical Approach:**
 
@@ -871,12 +897,12 @@ This analytic solution provides ~1000× speedup compared to iterative numerical 
 
 **Convergence Algorithm:**
 
-When `income_dependent_aggregate_damage = False`, the model uses an iterative algorithm to find consistent Omega and Omega_base values:
+The model uses a lagged damage approach to avoid iterative convergence:
 1. Initialize Omega_base from temperature: Ω_base = psi1·ΔT + psi2·ΔT²
-2. Integrate damage over income distribution to get aggregate_damage_fraction
-3. Update Omega = aggregate_damage_fraction
-4. Adjust Omega_base using under-relaxation (0.1) and Aitken acceleration
-5. Repeat until both Omega and Omega_base converge (tolerance: LOOSE_EPSILON = 1e-8)
+2. Use previous timestep's income distribution and damage to compute current period's income
+3. Integrate damage over current income distribution to get aggregate_damage_fraction
+4. Update Omega = aggregate_damage_fraction for use in next timestep
+5. This explicit calculation eliminates the need for within-timestep convergence loops
 
 ### Testing the Forward Model
 
@@ -1281,67 +1307,43 @@ The clamp is applied during integration rather than modifying E itself, allowing
 
 The model includes several optimizations for computational efficiency while maintaining numerical accuracy:
 
-**1. Climate Damage Convergence Loop (economic_model.py)**
+**1. Lagged Climate Damage Calculation (economic_model.py)**
 
-Climate damage depends on income distribution, which itself depends on climate damage (through tax/redistribution and damage effects), creating a circular dependency. This is resolved via an iterative convergence loop:
+Climate damage depends on income distribution, which itself depends on climate damage (through tax/redistribution and damage effects). This circular dependency is resolved using a lagged damage approach that eliminates the need for iterative convergence.
 
-```python
-# Convergence criterion using LOOSE_EPSILON (1e-8)
-converged = abs(Omega - Omega_prev) < LOOSE_EPSILON
-```
-
-**Algorithm Overview:**
-1. Initialize Omega using base climate damage (Omega_base = min(psi1 * delta_T + psi2 * delta_T^2, 1.0 - EPSILON))
-2. Compute critical income ranks (Fmin, Fmax) for redistribution and taxation using previous time step's distribution
-3. Integrate climate damage and utility over three segments: [0, Fmin), [Fmin, Fmax), [Fmax, 1]
-4. Update Omega from integrated aggregate_damage_fraction (already dimensionless, no division by income)
-5. If not income_dependent_aggregate_damage, adjust Omega_base using under-relaxed multiplicative update with Aitken acceleration
-6. Repeat until convergence (both Omega and Omega_base fractional changes < LOOSE_EPSILON)
+**Lagged Damage Algorithm:**
+1. Initialize Omega_base from temperature: Ω_base = min(psi1·ΔT + psi2·ΔT², 1 - EPSILON)
+2. Use climate damage from the previous timestep to compute current income distribution
+3. Compute critical income ranks (Fmin, Fmax) using analytical Lorenz integrals with stepwise damage functions
+4. Calculate income at each rank using `y_of_F_lagged_damage()` with previous period's damage
+5. Integrate climate damage and utility over three segments: [0, Fmin), [Fmin, Fmax), [Fmax, 1]
+6. Update Omega from integrated aggregate_damage_fraction for use in next timestep
+7. No within-timestep iteration required - all calculations are explicit
 
 **Performance Characteristics:**
-- **Convergence tolerance**: LOOSE_EPSILON (1e-8) balances speed and precision
-- **Typical iterations**: Varies widely, from 3-5 for simple cases to 60-120 for challenging parameter combinations
-- **Maximum iterations**: MAX_ITERATIONS (256) before raising RuntimeError
-- **Initial guess**: Omega_base provides good starting point
-- **Acceleration**: Aitken delta-squared extrapolation kicks in after iteration 3 to speed slow monotonic convergence
+- **No convergence loops**: Each timestep calculates income distribution explicitly using previous damage
+- **Analytical rank finding**: `find_Fmin_analytical()` and `find_Fmax_analytical()` use closed-form Lorenz integrals
+- **Stepwise functions**: Climate damage represented as piecewise constant over quadrature intervals
+- **Speedup**: ~1000× faster than numerical quadrature-based root finding
+- **Tolerance**: LOOSE_EPSILON (1e-8) used for root finding in analytical rank calculations
+- **Stability**: Eliminates convergence failures and provides deterministic, reproducible results
 
-**Aitken Acceleration for Omega_base Convergence:**
-
-When `income_dependent_aggregate_damage = False`, the Omega_base update uses Aitken's delta-squared method to accelerate convergence:
-
-```python
-# Detect slow monotonic convergence (after iteration 3)
-if monotonic and 0.3 < change_ratio < 1.2:
-    # Aitken extrapolation: x* ≈ x_n - Δ_n² / (Δ_n - Δ_{n-1})
-    x_extrapolated = x_n - (delta_n ** 2) / (delta_n - delta_n1)
-    # Blend with 50% weight if extrapolation is reasonable
-    Omega_base = 0.5 * Omega_base + 0.5 * x_extrapolated
-```
-
-**Algorithm Details:**
-- **Activation**: Triggers starting at iteration 3 when last 3 Omega_base values show monotonic progression
-- **Criteria**: Change ratios between 0.3 and 1.2 (slow but steady convergence)
-- **Extrapolation**: Uses Aitken delta-squared formula to estimate convergence limit
-- **Safety**: Rejects extrapolations that jump more than 10× the current step size
-- **Blending**: Uses 50% weight on extrapolated value (aggressive but safe)
-- **Relaxation**: Base multiplicative update uses relaxation = 0.1 (10% of computed change)
-
-This acceleration typically reduces convergence iterations by 2-3× for challenging cases with slow, steady progress.
-
-**2. Gauss-Legendre Quadrature Integration (utility_integrals.py)**
+**2. Gauss-Legendre Quadrature Integration (distribution_utilities.py)**
 
 Numerical integration over income distribution uses Gauss-Legendre quadrature for high accuracy with minimal function evaluations:
 
 ```python
 from scipy.special import roots_legendre
-# Precomputed once per timestep, before convergence loop
+# Precomputed once per timestep
 xi, wi = roots_legendre(N_QUAD)  # N_QUAD = 32 quadrature points
 ```
 
 **Integration Functions:**
-- **climate_damage_integral()**: Integrates climate damage over income ranks [F0, F1]
-- **crra_utility_integral_with_damage()**: Integrates CRRA utility accounting for climate damage
-- **y_of_F_after_damage()**: Computes income at rank F using analytic solution (for exponent=0.5) or numerical root finding (scipy.optimize.fsolve for other exponents) to solve implicit damage equation
+- **stepwise_interpolate(F, yi, Fi_edges)**: Evaluates piecewise constant function at rank F
+- **stepwise_integrate(F0, F1, yi, Fi_edges)**: Integrates piecewise constant function from F0 to F1
+- **find_Fmin_analytical()**: Finds minimum rank for taxation using closed-form Lorenz integrals
+- **find_Fmax_analytical()**: Finds maximum rank for subsidies using closed-form Lorenz integrals
+- **y_of_F_lagged_damage()**: Computes income at rank F using previous timestep's damage distribution
 
 **Performance:**
 - **N_QUAD = 32**: Provides excellent accuracy (~1e-10 relative error) for smooth integrands
@@ -1353,23 +1355,20 @@ xi, wi = roots_legendre(N_QUAD)  # N_QUAD = 32 quadrature points
 Multiple precision levels and iteration parameters:
 
 - **EPSILON = 1e-12**: Strict tolerance for mathematical comparisons (Gini bounds, float comparisons)
-- **LOOSE_EPSILON = 1e-8**: Practical tolerance for iterative solvers and optimization convergence
-  - Used for Omega convergence in climate damage loop
-  - Used in find_Fmin() and find_Fmax() root finding
+- **LOOSE_EPSILON = 1e-8**: Practical tolerance for root finding and optimization convergence
+  - Used in find_Fmin_analytical() and find_Fmax_analytical() root finding
   - Default value for xtol_abs in optimization (control parameter convergence)
-- **MAX_ITERATIONS = 256**: Maximum iterations for convergence loops
-  - Climate damage convergence in calculate_tendencies()
-  - Initial capital stock convergence in integrate_model()
-  - Increased from 64 to allow slow but steady convergence during optimization
 - **N_QUAD = 32**: Number of Gauss-Legendre quadrature points for numerical integration
-  - Used in climate_damage_integral() and crra_utility_integral_with_damage()
+  - Used for computing income distributions and utility integrals
   - Provides ~1e-10 relative error for smooth integrands
 
 **Cumulative Speedup:**
 
-Compared to initial implementation, these optimizations provide ~200x faster integration:
-- 400-year simulation: ~0.05 seconds (vs ~12 seconds originally)
-- Full optimization (10,000 evaluations): ~10 minutes (vs ~33 hours originally)
+These optimizations provide significant performance improvements:
+- Lagged damage approach eliminates within-timestep convergence loops
+- Analytical Lorenz integrals provide ~1000× speedup over numerical quadrature
+- 400-year simulation: typically completes in ~0.05 seconds
+- Full optimization (10,000 evaluations): typically completes in ~10 minutes
 
 ### Output Variables
 
@@ -1381,20 +1380,19 @@ The results dictionary contains arrays for:
 - **Climate variables**: `delta_T`, `Omega`, `Omega_base`, `E`, `Climate_Damage`, `climate_damage`
 - **Abatement variables**: `mu`, `Lambda`, `AbateCost`, `marginal_abatement_cost`
 - **Redistribution variables**: `redistribution`, `redistribution_amount`, `Redistribution_amount`, `uniform_redistribution_amount`, `uniform_tax_rate`
-- **Income distribution segments**: `Fmin`, `Fmax`, `n_damage_iterations`
-- **Aggregate integrals**: `aggregate_utility` (Note: aggregate_damage_fraction computed internally but not output, as it equals Omega after convergence)
+- **Income distribution segments**: `Fmin`, `Fmax`
+- **Aggregate integrals**: `aggregate_utility`
 - **Investment/Consumption**: `Savings`, `Consumption`
 - **Inequality/utility**: `Gini`, `G_eff`, `Gini_climate`, `U`, `discounted_utility`
 - **Tendencies**: `dK_dt`, `dEcum_dt`, `d_delta_Gini_dt`, `delta_Gini_step_change`
 
-**New Variables (from iterative convergence algorithm):**
-- **Omega_base**: Base climate damage from temperature before income adjustment
+**Variables from lagged damage calculation:**
+- **Omega_base**: Base climate damage from temperature (used for next timestep)
 - **y_damaged**: Per-capita gross production after climate damage
 - **climate_damage**: Per-capita climate damage
 - **Fmin**: Maximum income rank receiving targeted redistribution
 - **Fmax**: Minimum income rank paying progressive taxation
-- **n_damage_iterations**: Number of iterations to convergence
-- **aggregate_utility**: Total utility from numerical integration (aggregate_damage_fraction is computed internally but equals Omega after convergence, so not separately output)
+- **aggregate_utility**: Total utility from segment-wise integration
 - **uniform_redistribution_amount**: Per-capita uniform redistribution
 - **uniform_tax_rate**: Uniform tax rate (if not progressive)
 
@@ -2034,7 +2032,7 @@ coin_equality/
 ├── README.md                          # This file
 ├── CLAUDE.md                          # AI coding style guide
 ├── requirements.txt                   # Python dependencies
-├── income_distribution.py             # Core income distribution functions
+├── distribution_utilities.py          # Income distribution, utility integration, and stepwise functions
 ├── economic_model.py                  # Economic production and tendency calculations
 ├── parameters.py                      # Parameter definitions and configuration loading
 ├── optimization.py                    # Optimization framework with iterative refinement
