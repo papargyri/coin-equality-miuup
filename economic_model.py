@@ -101,8 +101,6 @@ def calculate_tendencies(state, params, climate_damage_yi_prev, Omega_prev, xi, 
     K = state['K']
     Ecum = state['Ecum']
 
-    print(f"DEBUG FUNCTION ENTRY: Omega_prev={Omega_prev:.6e}, K={K:.6e}, Ecum={Ecum:.6e}")
-
     # Extract parameters
     alpha = params['alpha']
     delta = params['delta']
@@ -315,10 +313,6 @@ def calculate_tendencies(state, params, climate_damage_yi_prev, Omega_prev, xi, 
         climate_damage_yi = np.zeros_like(xi)
         aggregate_utility = 0.0
 
-        print(f"DEBUG SETUP: Omega_prev={Omega_prev:.6e}, Omega_base={Omega_base:.6e}, y_gross={y_gross:.6e}, Fmin={Fmin:.6e}, Fmax={Fmax:.6e}")
-        print(f"DEBUG Fi_edges: {Fi_edges}")
-        print(f"DEBUG SETUP: climate_damage_yi_prev min={np.min(climate_damage_yi_prev):.6e}, max={np.max(climate_damage_yi_prev):.6e}, mean={np.mean(climate_damage_yi_prev):.6e}")
-
         # Segment 1: Low-income earners receiving income-dependent redistribution [0, Fmin]
         if Fmin > EPSILON:
             climate_damage_amount_at_Fmin = stepwise_interpolate(Fmin, climate_damage_yi_prev, Fi_edges)
@@ -344,11 +338,6 @@ def calculate_tendencies(state, params, climate_damage_yi_prev, Omega_prev, xi, 
             climate_damage_min = min_y_net * Omega_base * (min_y_net/y_net_reference)**(-y_damage_distribution_exponent)
             climate_damage_min = np.clip(climate_damage_min, 0.0, min_y_net)
 
-            min_y_net_val = np.asarray(min_y_net).flat[0] if hasattr(min_y_net, '__len__') else min_y_net
-            climate_damage_min_val = np.asarray(climate_damage_min).flat[0] if hasattr(climate_damage_min, '__len__') else climate_damage_min
-            climate_damage_at_Fmin_val = np.asarray(climate_damage_amount_at_Fmin).flat[0] if hasattr(climate_damage_amount_at_Fmin, '__len__') else climate_damage_amount_at_Fmin
-            print(f"DEBUG SEG1: min_y_net={min_y_net_val:.6e}, climate_damage_min={climate_damage_min_val:.6e}, climate_damage_amount_at_Fmin={climate_damage_at_Fmin_val:.6e}")
-
             # Set climate_damage_yi for bins below Fmin (same approach as y_net_yi)
             for i in range(len(Fi_edges) - 1):
                 if Fi_edges[i+1] <= Fmin:
@@ -358,8 +347,6 @@ def calculate_tendencies(state, params, climate_damage_yi_prev, Omega_prev, xi, 
                     # Bin containing Fmin - weight by fraction below Fmin
                     fraction_below = (Fmin - Fi_edges[i]) / Fwi[i]
                     climate_damage_yi[i] = climate_damage_min * fraction_below
-
-            print(f"DEBUG SEG1: After segment 1, climate_damage_yi sum={np.sum(Fwi * climate_damage_yi):.6e}")
 
         # Segment 3: High-income earners paying income-dependent tax [Fmax, 1]
         if 1.0 - Fmax > EPSILON:
@@ -383,25 +370,8 @@ def calculate_tendencies(state, params, climate_damage_yi_prev, Omega_prev, xi, 
             )
             max_consumption = max_y_net * (1 - s)
             aggregate_utility += crra_utility_interval(Fmax, 1.0, max_consumption, eta)
-            ratio = max_y_net/y_net_reference
-            exponent = -y_damage_distribution_exponent
-            ratio_to_power = ratio**exponent
-            climate_damage_max_unclipped = max_y_net * Omega_base * ratio_to_power
-
-            max_y_net_float = float(np.asarray(max_y_net).flat[0]) if hasattr(max_y_net, '__len__') else float(max_y_net)
-            ratio_float = float(np.asarray(ratio).flat[0]) if hasattr(ratio, '__len__') else float(ratio)
-            exponent_float = float(np.asarray(exponent).flat[0]) if hasattr(exponent, '__len__') else float(exponent)
-            ratio_to_power_float = float(np.asarray(ratio_to_power).flat[0]) if hasattr(ratio_to_power, '__len__') else float(ratio_to_power)
-            climate_damage_max_unclipped_float = float(np.asarray(climate_damage_max_unclipped).flat[0]) if hasattr(climate_damage_max_unclipped, '__len__') else float(climate_damage_max_unclipped)
-
-            print(f"DEBUG SEG3 CALC: max_y_net={max_y_net_float:.6e}, Omega_base={Omega_base:.6e}, ratio={ratio_float:.6e}, exponent={exponent_float:.6e}, ratio**exponent={ratio_to_power_float:.6e}")
-            print(f"DEBUG SEG3 CALC: climate_damage_max_unclipped={climate_damage_max_unclipped_float:.6e}")
-            climate_damage_max = np.clip(climate_damage_max_unclipped, 0.0, max_y_net)
-
-            max_y_net_val = np.asarray(max_y_net).flat[0] if hasattr(max_y_net, '__len__') else max_y_net
-            climate_damage_max_val = np.asarray(climate_damage_max).flat[0] if hasattr(climate_damage_max, '__len__') else climate_damage_max
-            climate_damage_at_Fmax_val = np.asarray(climate_damage_amount_at_Fmax).flat[0] if hasattr(climate_damage_amount_at_Fmax, '__len__') else climate_damage_amount_at_Fmax
-            print(f"DEBUG SEG3: max_y_net={max_y_net_val:.6e}, climate_damage_max={climate_damage_max_val:.6e}, climate_damage_amount_at_Fmax={climate_damage_at_Fmax_val:.6e}")
+            climate_damage_max = max_y_net * Omega_base * (max_y_net/y_net_reference)**(-y_damage_distribution_exponent)
+            climate_damage_max = np.clip(climate_damage_max, 0.0, max_y_net)
 
             # Set climate_damage_yi for bins above Fmax (same approach as y_net_yi)
             for i in range(len(Fi_edges) - 1):
@@ -412,8 +382,6 @@ def calculate_tendencies(state, params, climate_damage_yi_prev, Omega_prev, xi, 
                     # Bin containing Fmax - weight by fraction above Fmax
                     fraction_above = (Fi_edges[i+1] - Fmax) / Fwi[i]
                     climate_damage_yi[i] = climate_damage_max * fraction_above
-
-            print(f"DEBUG SEG3: After segment 3, climate_damage_yi sum={np.sum(Fwi * climate_damage_yi):.6e}")
 
         # Segment 2: Middle-income earners with uniform redistribution/tax [Fmin, Fmax]
         if Fmax - Fmin > EPSILON:
@@ -433,9 +401,6 @@ def calculate_tendencies(state, params, climate_damage_yi_prev, Omega_prev, xi, 
                 climate_damage_yi_mid = Omega_base * y_vals_Fi * (y_vals_Fi / y_net_reference) ** (-y_damage_distribution_exponent)
 
             climate_damage_yi_mid = np.clip(climate_damage_yi_mid, 0.0, y_vals_Fi)
-
-            print(f"DEBUG SEG2: y_vals_Fi min={np.min(y_vals_Fi):.6e}, max={np.max(y_vals_Fi):.6e}, mean={np.mean(y_vals_Fi):.6e}")
-            print(f"DEBUG SEG2: climate_damage_yi_mid min={np.min(climate_damage_yi_mid):.6e}, max={np.max(climate_damage_yi_mid):.6e}, mean={np.mean(climate_damage_yi_mid):.6e}")
 
             # Set y_net_yi and climate_damage_yi for bins in [Fmin, Fmax]
             for i in range(len(Fi_edges) - 1):
@@ -468,25 +433,13 @@ def calculate_tendencies(state, params, climate_damage_yi_prev, Omega_prev, xi, 
             # Gauss-Legendre quadrature over [Fmin, Fmax]: (Fmax-Fmin)/2 maps from [-1,1] to [Fmin,Fmax]
             aggregate_utility += (Fmax - Fmin) / 2.0 * np.sum(wi * utility_vals)
 
-            print(f"DEBUG SEG2: After segment 2, climate_damage_yi sum={np.sum(Fwi * climate_damage_yi):.6e}")
-
-        print(f"DEBUG ALL SEGMENTS: Final climate_damage_yi min={np.min(climate_damage_yi):.6e}, max={np.max(climate_damage_yi):.6e}, sum={np.sum(Fwi * climate_damage_yi):.6e}")
-        print(f"DEBUG climate_damage_yi array: {climate_damage_yi}")
-
         if not income_dependent_aggregate_damage:
             total_climate_damage_pre_scale = np.sum(Fwi * climate_damage_yi)
             # Adjust climate damage to match Omega_base
-            print(f"DEBUG: Before rescaling - total_climate_damage_pre_scale = {total_climate_damage_pre_scale:.6e}, Omega_base = {Omega_base:.6e}, y_gross = {y_gross:.6e}")
             if total_climate_damage_pre_scale > 0:
-                print(f"DEBUG: Rescaling factor = {(Omega_base * y_gross) / total_climate_damage_pre_scale:.6e}")
                 climate_damage_yi = climate_damage_yi * (Omega_base * y_gross) / total_climate_damage_pre_scale
-            else:
-                print(f"DEBUG: WARNING - total_climate_damage_pre_scale is zero or negative!")
-                climate_damage_yi = climate_damage_yi * 0.0  # Set to zero if pre-scale is invalid
 
-        total_climate_damage_after = np.sum(Fwi * climate_damage_yi)
-        Omega = total_climate_damage_after / y_gross  # Recalculate Omega based on current damage distribution
-        print(f"DEBUG: After rescaling - total_climate_damage = {total_climate_damage_after:.6e}, y_gross = {y_gross:.6e}, Omega = {Omega:.6e}")
+        Omega = np.sum(Fwi * climate_damage_yi) / y_gross  # Recalculate Omega based on current damage distribution
 
     #========================================================================================
 
