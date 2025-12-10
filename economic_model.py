@@ -21,6 +21,56 @@ from distribution_utilities import (
 from parameters import evaluate_params_at_time
 from constants import EPSILON, LOOSE_EPSILON, NEG_BIGNUM
 
+def gini_from_distribution(values_yi, Fi_edges, Fwi):
+    """
+    Calculate Gini coefficient from discretized distribution.
+
+    Parameters
+    ----------
+    values_yi : np.ndarray
+        Values at quadrature points (length N_QUAD)
+    Fi_edges : np.ndarray
+        Edges of bins in F space [0, 1] (length N_QUAD + 1)
+    Fwi : np.ndarray
+        Bin widths (length N_QUAD)
+
+    Returns
+    -------
+    float
+        Gini coefficient (0 = perfect equality, 1 = perfect inequality)
+
+    Notes
+    -----
+    Gini = 2 * integral from 0 to 1 of (F - L(F)) dF
+    where L(F) is the Lorenz curve (cumulative fraction of total quantity
+    held by bottom F fraction of population)
+    """
+    total = np.sum(Fwi * values_yi)
+
+    if np.abs(total) <= EPSILON:
+        return 0.0
+
+    # Calculate Lorenz curve at each edge
+    lorenz = np.zeros(len(Fi_edges))
+    cumulative = 0.0
+
+    for i in range(len(Fwi)):
+        cumulative += Fwi[i] * values_yi[i]
+        lorenz[i+1] = cumulative / total
+
+    # Calculate Gini coefficient using trapezoidal rule
+    # Gini = 2 * integral from 0 to 1 of (F - L(F)) dF
+    gini = 0.0
+    for i in range(len(Fi_edges) - 1):
+        dF = Fi_edges[i+1] - Fi_edges[i]
+        F_avg = (Fi_edges[i] + Fi_edges[i+1]) / 2.0
+        L_avg = (lorenz[i] + lorenz[i+1]) / 2.0
+        gini += (F_avg - L_avg) * dF
+
+    gini *= 2.0
+
+    return gini
+
 # Global timing statistics
 _timing_stats = {
     'call_count': 0,
@@ -520,6 +570,45 @@ def calculate_tendencies(state, params, climate_damage_yi_prev, Omega_prev, xi, 
         redistribution = redistribution_amount  # Per capita redistribution (same as redistribution_amount)
         Redistribution_amount = redistribution_amount * L  # Total redistribution amount
 
+        # Calculate Gini coefficients from vector distributions
+        if y_gross > EPSILON:
+            # Calculate consumption_yi from y_net_yi for Gini calculation
+            consumption_yi_full = y_net_yi * (1 - s)
+
+            gini_y_net = gini_from_distribution(y_net_yi, Fi_edges, Fwi)
+            gini_consumption = gini_from_distribution(consumption_yi_full, Fi_edges, Fwi)
+            gini_climate_damage = gini_from_distribution(climate_damage_yi, Fi_edges, Fwi)
+
+            delta_gini_y_net = gini_y_net - gini
+            delta_gini_consumption = gini_consumption - gini
+            delta_gini_climate_damage = gini_climate_damage - gini
+
+            # Calculate coefficient of variation for utility (std / mean)
+            # Compute utility_yi from consumption_yi
+            if eta == 1:
+                utility_yi_full = np.log(np.maximum(consumption_yi_full, EPSILON))
+            else:
+                utility_yi_full = (np.maximum(consumption_yi_full, EPSILON) ** (1 - eta)) / (1 - eta)
+
+            # Weighted mean and standard deviation
+            mean_utility = np.sum(Fwi * utility_yi_full)
+            variance_utility = np.sum(Fwi * (utility_yi_full - mean_utility) ** 2)
+            std_utility = np.sqrt(variance_utility)
+
+            # Coefficient of variation (handle case where mean is zero or near-zero)
+            if np.abs(mean_utility) > EPSILON:
+                cv_utility = std_utility / np.abs(mean_utility)
+            else:
+                cv_utility = 0.0
+        else:
+            gini_y_net = 0.0
+            gini_consumption = 0.0
+            gini_climate_damage = 0.0
+            delta_gini_y_net = 0.0
+            delta_gini_consumption = 0.0
+            delta_gini_climate_damage = 0.0
+            cv_utility = 0.0
+
         # Return full diagnostics for CSV/PDF output
         results.update({
             'dK_dt': dK_dt,
@@ -555,6 +644,13 @@ def calculate_tendencies(state, params, climate_damage_yi_prev, Omega_prev, xi, 
             'Consumption': Consumption,
             'consumption': consumption,
             's': s,  # Savings rate (currently constant, may become time-dependent)
+            'gini_y_net': gini_y_net,  # Gini coefficient of net income distribution
+            'gini_consumption': gini_consumption,  # Gini coefficient of consumption distribution
+            'gini_climate_damage': gini_climate_damage,  # Gini coefficient of climate damage distribution
+            'delta_gini_y_net': delta_gini_y_net,  # Change in Gini from input (net income)
+            'delta_gini_consumption': delta_gini_consumption,  # Change in Gini from input (consumption)
+            'delta_gini_climate_damage': delta_gini_climate_damage,  # Change in Gini from input (climate damage)
+            'cv_utility': cv_utility,  # Coefficient of variation of utility (std/mean)
         })
 
     # Return minimal variables needed for optimization
@@ -704,6 +800,13 @@ def integrate_model(config, store_detailed_output=True):
             'Consumption': np.zeros(n_steps),
             'consumption': np.zeros(n_steps),
             's': np.zeros(n_steps),
+            'gini_y_net': np.zeros(n_steps),
+            'gini_consumption': np.zeros(n_steps),
+            'gini_climate_damage': np.zeros(n_steps),
+            'delta_gini_y_net': np.zeros(n_steps),
+            'delta_gini_consumption': np.zeros(n_steps),
+            'delta_gini_climate_damage': np.zeros(n_steps),
+            'cv_utility': np.zeros(n_steps),
         })
 
     # Always store time, state variables, and objective function variables
@@ -773,6 +876,13 @@ def integrate_model(config, store_detailed_output=True):
             results['Consumption'][i] = outputs['Consumption']
             results['consumption'][i] = outputs['consumption']
             results['s'][i] = outputs['s']
+            results['gini_y_net'][i] = outputs['gini_y_net']
+            results['gini_consumption'][i] = outputs['gini_consumption']
+            results['gini_climate_damage'][i] = outputs['gini_climate_damage']
+            results['delta_gini_y_net'][i] = outputs['delta_gini_y_net']
+            results['delta_gini_consumption'][i] = outputs['delta_gini_consumption']
+            results['delta_gini_climate_damage'][i] = outputs['delta_gini_climate_damage']
+            results['cv_utility'][i] = outputs['cv_utility']
 
         # Euler step: update state for next iteration (skip on last step)
         if i < n_steps - 1:

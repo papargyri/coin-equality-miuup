@@ -1382,8 +1382,9 @@ The results dictionary contains arrays for:
 - **Redistribution variables**: `redistribution`, `redistribution_amount`, `Redistribution_amount`, `uniform_redistribution_amount`, `uniform_tax_rate`
 - **Income distribution segments**: `Fmin`, `Fmax`
 - **Aggregate integrals**: `aggregate_utility`
-- **Investment/Consumption**: `Savings`, `Consumption`
+- **Investment/Consumption**: `Savings`, `savings`, `Consumption`, `consumption`
 - **Inequality/utility**: `Gini`, `G_eff`, `Gini_climate`, `U`, `discounted_utility`
+- **Distribution diagnostics**: `gini_y_net`, `gini_consumption`, `gini_climate_damage`, `delta_gini_y_net`, `delta_gini_consumption`, `delta_gini_climate_damage`, `cv_utility`
 - **Tendencies**: `dK_dt`, `dEcum_dt`, `d_delta_Gini_dt`, `delta_Gini_step_change`
 
 **Variables from lagged damage calculation:**
@@ -1395,6 +1396,17 @@ The results dictionary contains arrays for:
 - **aggregate_utility**: Total utility from segment-wise integration
 - **uniform_redistribution_amount**: Per-capita uniform redistribution
 - **uniform_tax_rate**: Uniform tax rate (if not progressive)
+
+**Distribution diagnostics (inequality measures calculated from discretized distributions):**
+- **gini_y_net**: Gini coefficient of net income distribution (after taxes/transfers)
+- **gini_consumption**: Gini coefficient of consumption distribution
+- **gini_climate_damage**: Gini coefficient of climate damage distribution
+- **delta_gini_y_net**: Difference from input Gini (gini_y_net - gini)
+- **delta_gini_consumption**: Difference from input Gini (gini_consumption - gini)
+- **delta_gini_climate_damage**: Difference from input Gini (gini_climate_damage - gini)
+- **cv_utility**: Coefficient of variation of utility distribution (weighted std / weighted mean)
+
+These diagnostics help track how redistribution and climate damage policies affect inequality across different variables. The Gini coefficients are computed from the discretized distributions at Gauss-Legendre quadrature points using the Lorenz curve integral: Gini = 2 ∫₀¹ (F - L(F)) dF. The coefficient of variation for utility is used instead of a Gini coefficient because utility can have negative values when η > 1.
 
 All arrays have the same length corresponding to time points from `t_start` to `t_end` in steps of `dt`.
 
