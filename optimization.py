@@ -884,15 +884,19 @@ class UtilityOptimizer:
         Parameterization for each interior point n (where n = 1 to N-2):
             t_new[n] = ctrl[n-1] * (t[n+1] - t[n-1]) + t[n-1]
 
-        where ctrl[n-1] ∈ [0, 1]:
-            - ctrl = 0: point moves to left neighbor
-            - ctrl = 1: point moves to right neighbor
+        where ctrl[n-1] bounds ensure minimum dt spacing:
+            - Lower bound: ctrl >= dt / (t[n+1] - t[n-1])  ensures t_new[n] >= t[n-1] + dt
+            - Upper bound: ctrl <= (t[n+1] - dt - t[n-1]) / (t[n+1] - t[n-1])  ensures t_new[n] <= t[n+1] - dt
             - ctrl = (t[n] - t[n-1]) / (t[n+1] - t[n-1]): stays at current position
+
+        This ensures all control points maintain minimum spacing of dt (the integration timestep),
+        preventing numerical issues while allowing the optimizer to adjust temporal placement.
 
         For dual optimization (f and s):
             - Total parameters: (N_f - 2) + (N_s - 2)
             - f and s times adjusted independently
             - Different numbers of control points supported
+            - Both f and s times enforce dt spacing constraints
         """
         self.n_evaluations = 0
         self.best_objective = -np.inf
@@ -936,22 +940,52 @@ class UtilityOptimizer:
                 result['s_control_points'] = initial_s_control_points
             return result
 
-        ctrl_initial = np.zeros(n_params)
+        # Get dt constraint from config
+        dt = self.base_config.integration_params.dt
 
+        ctrl_initial = np.zeros(n_params)
+        ctrl_lower = np.zeros(n_params)
+        ctrl_upper = np.ones(n_params)
+
+        # Set bounds for f control points to enforce minimum dt spacing
         for i in range(n_f_interior):
             n = i + 1
             t_left = f_times[n - 1]
             t_curr = f_times[n]
             t_right = f_times[n + 1]
+
+            # Current fractional position
             ctrl_initial[i] = (t_curr - t_left) / (t_right - t_left)
 
+            # Lower bound: ensure t_new[n] >= t_left + dt
+            # t_new[n] = ctrl * (t_right - t_left) + t_left >= t_left + dt
+            # ctrl >= dt / (t_right - t_left)
+            ctrl_lower[i] = dt / (t_right - t_left)
+
+            # Upper bound: ensure t_new[n] <= t_right - dt
+            # t_new[n] = ctrl * (t_right - t_left) + t_left <= t_right - dt
+            # ctrl <= (t_right - dt - t_left) / (t_right - t_left)
+            ctrl_upper[i] = (t_right - dt - t_left) / (t_right - t_left)
+
         if optimize_both:
+            # Set bounds for s control points to enforce minimum dt spacing
             for i in range(n_s_interior):
                 n = i + 1
                 t_left = s_times[n - 1]
                 t_curr = s_times[n]
                 t_right = s_times[n + 1]
+
+                # Current fractional position
                 ctrl_initial[n_f_interior + i] = (t_curr - t_left) / (t_right - t_left)
+
+                # Lower bound: ensure minimum dt spacing from left neighbor
+                ctrl_lower[n_f_interior + i] = dt / (t_right - t_left)
+
+                # Upper bound: ensure minimum dt spacing from right neighbor
+                ctrl_upper[n_f_interior + i] = (t_right - dt - t_left) / (t_right - t_left)
+
+        # Ensure initial guess respects bounds (clip if necessary)
+        ctrl_initial = np.clip(ctrl_initial, ctrl_lower, ctrl_upper)
 
         def reconstruct_times_and_evaluate(ctrl):
             f_times_new = np.zeros(n_f)
@@ -1016,8 +1050,8 @@ class UtilityOptimizer:
 
         nlopt_algorithm = getattr(nlopt, algorithm)
         opt = nlopt.opt(nlopt_algorithm, n_params)
-        opt.set_lower_bounds(np.zeros(n_params))
-        opt.set_upper_bounds(np.ones(n_params))
+        opt.set_lower_bounds(ctrl_lower)
+        opt.set_upper_bounds(ctrl_upper)
         opt.set_max_objective(objective_wrapper)
         opt.set_maxeval(max_evaluations)
 
