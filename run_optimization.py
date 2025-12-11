@@ -509,11 +509,9 @@ def main():
     optimizer = UtilityOptimizer(config)
 
     initial_guess = opt_params.initial_guess_f
-    max_evaluations = opt_params.max_evaluations
     sensitivity_results = None
 
     print_header("OPTIMIZATION")
-    print(f"Max evaluations: {max_evaluations} per iteration")
 
     algorithm = opt_params.algorithm if opt_params.algorithm is not None else 'LN_SBPLX'
     print(f"Algorithm: {algorithm}")
@@ -532,7 +530,9 @@ def main():
     opt_results = optimizer.optimize_with_iterative_refinement(
         n_iterations=opt_params.optimization_iterations,
         initial_guess_scalar=opt_params.initial_guess_f,
-        max_evaluations=max_evaluations,
+        max_evaluations_initial=opt_params.max_evaluations_initial,
+        max_evaluations_final=opt_params.max_evaluations_final,
+        max_evaluations_time_points=opt_params.max_evaluations_time_points,
         algorithm=opt_params.algorithm,
         ftol_rel=opt_params.ftol_rel,
         ftol_abs=opt_params.ftol_abs,

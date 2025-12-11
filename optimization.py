@@ -1090,7 +1090,8 @@ class UtilityOptimizer:
         return result
 
     def optimize_with_iterative_refinement(self, n_iterations, initial_guess_scalar,
-                                          max_evaluations, algorithm=None,
+                                          max_evaluations_initial, max_evaluations_final,
+                                          max_evaluations_time_points, algorithm=None,
                                           ftol_rel=None, ftol_abs=None,
                                           xtol_rel=None, xtol_abs=None,
                                           n_points_final=None,
@@ -1115,8 +1116,12 @@ class UtilityOptimizer:
         initial_guess_scalar : float
             Initial f value for all control points in first iteration.
             Must satisfy 0 ≤ f ≤ 1.
-        max_evaluations : int
-            Maximum objective function evaluations per iteration
+        max_evaluations_initial : int
+            Maximum objective function evaluations for first iteration
+        max_evaluations_final : int
+            Maximum objective function evaluations for final iteration
+        max_evaluations_time_points : int
+            Maximum objective function evaluations for time adjustment optimization (when optimize_time_points=True)
         algorithm : str, optional
             NLopt algorithm name. If None, defaults to 'LN_SBPLX'.
         ftol_rel : float, optional
@@ -1181,6 +1186,12 @@ class UtilityOptimizer:
         # Determine if f and s optimization is enabled
         optimize_f_and_s = initial_guess_s_scalar is not None
 
+        # Calculate refinement base for max_evaluations
+        if n_iterations <= 1:
+            refinement_base_evaluations = 2.0  # Doesn't matter, only one iteration uses max_evaluations_final
+        else:
+            refinement_base_evaluations = ((max_evaluations_final - 1) / (max_evaluations_initial - 1)) ** (1.0 / (n_iterations - 1))
+
         # Calculate refinement base for f
         if n_points_final is not None:
             if n_iterations <= 1:
@@ -1201,10 +1212,11 @@ class UtilityOptimizer:
                 refinement_base_s = refinement_base_f  # Use same base as f if not specified
 
         chebyshev_scaling = self.base_config.optimization_params.chebyshev_scaling_power
-        print(f"\nIterative refinement: {n_iterations} iterations, base_f = {refinement_base_f:.4f}")
+        print(f"\nIterative refinement: {n_iterations} iterations, base_f = {refinement_base_f:.4f}, base_evaluations = {refinement_base_evaluations:.4f}")
         print(f"Chebyshev scaling power: {chebyshev_scaling:.2f}")
         if n_points_final is not None:
             print(f"Target final f points: {n_points_final}")
+        print(f"Max evaluations: initial={max_evaluations_initial}, final={max_evaluations_final}")
         if optimize_f_and_s:
             print(f"Optimizing both f and s: base_s = {refinement_base_s:.4f}")
             if n_points_final_s is not None:
@@ -1218,6 +1230,12 @@ class UtilityOptimizer:
         for iteration in range(1, n_iterations + 1):
             # Get algorithm for this iteration
             iteration_algorithm = self.base_config.optimization_params.get_algorithm_for_iteration(iteration)
+
+            # Calculate max_evaluations for this iteration
+            if n_iterations == 1:
+                iteration_max_evaluations = max_evaluations_final
+            else:
+                iteration_max_evaluations = round(1 + (max_evaluations_initial - 1) * refinement_base_evaluations**(iteration - 1))
 
             # Calculate f control points
             n_points_f = round(1 + (n_points_initial - 1) * refinement_base_f**(iteration - 1))
@@ -1265,6 +1283,7 @@ class UtilityOptimizer:
             print(f"  Algorithm: {iteration_algorithm}")
             if requires_gradient(iteration_algorithm):
                 print(f"    (gradient-based, using numerical derivatives)")
+            print(f"  Max evaluations: {iteration_max_evaluations}")
 
             # Print effective scaling power (may be constrained by minimum spacing)
             requested_scaling = self.base_config.optimization_params.chebyshev_scaling_power
@@ -1292,7 +1311,7 @@ class UtilityOptimizer:
                     f_initial_guess,
                     s_control_times,
                     s_initial_guess,
-                    max_evaluations,
+                    iteration_max_evaluations,
                     algorithm=iteration_algorithm,
                     ftol_rel=ftol_rel,
                     ftol_abs=ftol_abs,
@@ -1303,7 +1322,7 @@ class UtilityOptimizer:
                 opt_result = self.optimize_control_points(
                     f_control_times,
                     f_initial_guess,
-                    max_evaluations,
+                    iteration_max_evaluations,
                     algorithm=iteration_algorithm,
                     ftol_rel=ftol_rel,
                     ftol_abs=ftol_abs,
@@ -1350,7 +1369,7 @@ class UtilityOptimizer:
             time_opt_result = self.optimize_time_adjustment(
                 final_result['control_points'],
                 final_result.get('s_control_points', None),
-                max_evaluations,
+                max_evaluations_time_points,
                 algorithm if algorithm is not None else 'LN_SBPLX',
                 ftol_rel,
                 ftol_abs,

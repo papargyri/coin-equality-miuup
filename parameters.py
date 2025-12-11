@@ -409,8 +409,18 @@ class OptimizationParameters:
 
     Attributes
     ----------
-    max_evaluations : int
-        Maximum number of objective function evaluations per iteration
+    max_evaluations_initial : int
+        Maximum number of objective function evaluations for first iteration.
+        Scales progressively for intermediate iterations using refinement_base_evaluations.
+    max_evaluations_final : int
+        Maximum number of objective function evaluations for final iteration.
+        Refinement base calculated as: ((max_final - 1) / (max_initial - 1))^(1/(n_iterations - 1))
+        Intermediate iterations scale as: round(1 + (max_initial - 1) * base^(iteration - 1))
+        Example: With max_initial=5000, max_final=30000, n_iterations=3:
+            Iteration 1: 5000, Iteration 2: 12247, Iteration 3: 30000
+    max_evaluations_time_points : int
+        Maximum number of objective function evaluations for time adjustment optimization.
+        Only used when optimize_time_points = True.
     optimization_iterations : int
         Number of refinement iterations.
         Iteration 1: n_points_initial control points at t_start and t_end
@@ -504,7 +514,9 @@ class OptimizationParameters:
         Example: With t_end=400 and scaling_power=1.5, half the points
         occur before year 141.
     """
-    max_evaluations: int
+    max_evaluations_initial: int
+    max_evaluations_final: int
+    max_evaluations_time_points: int
     optimization_iterations: int
     initial_guess_f: object  # list or float
     algorithm: object = None  # str or list[str]
