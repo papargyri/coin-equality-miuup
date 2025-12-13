@@ -357,21 +357,26 @@ def calculate_tendencies(state, params, Climate_damage_yi_prev, Omega_prev, xi, 
         # For income-dependent tax, find Fmax such that tax matches target
         if income_dependent_tax_policy:
             uniform_tax_rate = 0.0
-            # We want to find the value of Fmax such that if everyone above Fmax made
-            # the same amount of money as people at Fmax, that would generate the right amount of tax revenue.
-            # The piece of resources that would come from the Lorenz curve above Fmax is:
-            # lorenz_part = y_gross *( (1 - L(Fmax)) - (1.0 - Fmax) * (d L/dF)@Fmax )
-            # damage_part = stepwise_integrate(Fmax, 1.0, climate_damage_yi_prev, Fi_edges) - (1 - Fmax) * stepwise_interpolate(Fmax, climate_damage_yi_prev, Fi_edges)
-            # The challenge is to find Fmax such that:
-            # tax_amount = lorenz_part - damage_part
+            # Only find Fmax if there's actually something to tax
+            if tax_amount > EPSILON:
+                # We want to find the value of Fmax such that if everyone above Fmax made
+                # the same amount of money as people at Fmax, that would generate the right amount of tax revenue.
+                # The piece of resources that would come from the Lorenz curve above Fmax is:
+                # lorenz_part = y_gross *( (1 - L(Fmax)) - (1.0 - Fmax) * (d L/dF)@Fmax )
+                # damage_part = stepwise_integrate(Fmax, 1.0, climate_damage_yi_prev, Fi_edges) - (1 - Fmax) * stepwise_interpolate(Fmax, climate_damage_yi_prev, Fi_edges)
+                # The challenge is to find Fmax such that:
+                # tax_amount = lorenz_part - damage_part
 
-            t_before_fmax = time.time()
-            Fmax = find_Fmax_analytical(
-                Fmin, y_gross * (1.0 - Lambda), gini, climate_damage_yi_prev_scaled, Fi_edges,
-                uniform_redistribution_amount, target_tax=tax_amount,
-                initial_guess=Fmax_prev,
-            )
-            _timing_stats['find_Fmax_time'] += time.time() - t_before_fmax
+                t_before_fmax = time.time()
+                Fmax = find_Fmax_analytical(
+                    Fmin, y_gross * (1.0 - Lambda), gini, climate_damage_yi_prev_scaled, Fi_edges,
+                    uniform_redistribution_amount, target_tax=tax_amount,
+                    initial_guess=Fmax_prev,
+                )
+                _timing_stats['find_Fmax_time'] += time.time() - t_before_fmax
+            else:
+                # No tax amount, so no income-dependent taxation
+                Fmax = 1.0
         else:
             # Uniform tax
             uniform_tax_rate = (abateCost_amount + redistribution_amount) / y_net
@@ -381,13 +386,18 @@ def calculate_tendencies(state, params, Climate_damage_yi_prev, Omega_prev, xi, 
         # For income-dependent redistribution, find Fmin such that redistribution matches target
         if income_redistribution and income_dependent_redistribution_policy:
             uniform_redistribution_amount = 0.0
-            t_before_fmin = time.time()
-            Fmin = find_Fmin_analytical(
-                y_gross * (1.0 - Lambda), gini, climate_damage_yi_prev_scaled, Fi_edges,
-                0.0, target_subsidy=redistribution_amount,
-                initial_guess=Fmin_prev,
-            )
-            _timing_stats['find_Fmin_time'] += time.time() - t_before_fmin
+            # Only find Fmin if there's actually something to redistribute
+            if redistribution_amount > EPSILON:
+                t_before_fmin = time.time()
+                Fmin = find_Fmin_analytical(
+                    y_gross * (1.0 - Lambda), gini, climate_damage_yi_prev_scaled, Fi_edges,
+                    0.0, target_subsidy=redistribution_amount,
+                    initial_guess=Fmin_prev,
+                )
+                _timing_stats['find_Fmin_time'] += time.time() - t_before_fmin
+            else:
+                # No redistribution amount, so no targeted redistribution
+                Fmin = 0.0
         else:
             # Uniform redistribution
             uniform_redistribution_amount = redistribution_amount
@@ -644,6 +654,7 @@ def calculate_tendencies(state, params, Climate_damage_yi_prev, Omega_prev, xi, 
             'redistribution_amount': redistribution_amount,  # Per capita redistribution amount
             'Redistribution_amount': Redistribution_amount,  # Total redistribution amount
             'uniform_redistribution_amount': uniform_redistribution_amount,  # Per capita uniform redistribution
+            'tax_amount': tax_amount,  # Per capita tax amount (abatement + redistribution)
             'uniform_tax_rate': uniform_tax_rate,  # Uniform tax rate
             'Fmin': Fmin,  # Minimum income rank boundary
             'Fmax': Fmax,  # Maximum income rank boundary
@@ -802,6 +813,7 @@ def integrate_model(config, store_detailed_output=True):
             'redistribution_amount': np.zeros(n_steps),
             'Redistribution_amount': np.zeros(n_steps),
             'uniform_redistribution_amount': np.zeros(n_steps),
+            'tax_amount': np.zeros(n_steps),
             'uniform_tax_rate': np.zeros(n_steps),
             'Fmin': np.zeros(n_steps),
             'Fmax': np.zeros(n_steps),
@@ -893,6 +905,7 @@ def integrate_model(config, store_detailed_output=True):
             results['redistribution_amount'][i] = outputs['redistribution_amount']
             results['Redistribution_amount'][i] = outputs['Redistribution_amount']
             results['uniform_redistribution_amount'][i] = outputs['uniform_redistribution_amount']
+            results['tax_amount'][i] = outputs['tax_amount']
             results['uniform_tax_rate'][i] = outputs['uniform_tax_rate']
             results['Fmin'][i] = outputs['Fmin']
             results['Fmax'][i] = outputs['Fmax']

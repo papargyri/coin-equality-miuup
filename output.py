@@ -50,7 +50,8 @@ VARIABLE_METADATA = {
     'Fmin': {'description': 'Minimum Income Rank Boundary', 'units': '', 'group': 'inequality'},
     'Fmax': {'description': 'Maximum Income Rank Boundary', 'units': '', 'group': 'inequality'},
     'min_y_net': {'description': 'Net Income at Fmin', 'units': '$/person', 'group': 'inequality'},
-    'max_y_net': {'description': 'Net Income at Fmax', 'units': '$/person', 'group': 'inequality'}
+    'max_y_net': {'description': 'Net Income at Fmax', 'units': '$/person', 'group': 'inequality'},
+    'tax_amount': {'description': 'Per-Capita Tax Amount', 'units': '$/person', 'group': 'policy'}
 }
 
 # Variable grouping for organized layout with combined charts
@@ -427,6 +428,7 @@ def write_results_csv(results, output_dir, run_name='', filename='results.csv'):
         'delta_gini_consumption': ('Change in Gini from input (consumption)', 'dimensionless'),
         'delta_gini_climate_damage': ('Change in Gini from input (climate damage)', 'dimensionless'),
         'delta_gini_utility': ('Change in Gini from input (utility)', 'dimensionless'),
+        'tax_amount': ('Per-capita tax amount (abatement + redistribution)', '$/person/yr'),
     }
 
     # Create headers with format: "variable, description, (units)"
