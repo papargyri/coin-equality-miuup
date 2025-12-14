@@ -862,8 +862,17 @@ def save_results(results, run_name, plot_short_horizon=None, output_dir=None, co
         t = results['t']
         mask = t <= plot_short_horizon
 
-        results_short = {key: val[mask] if isinstance(val, np.ndarray) else val
-                        for key, val in results.items()}
+        results_short = {}
+        for key, val in results.items():
+            if isinstance(val, np.ndarray):
+                if val.ndim == 1:
+                    results_short[key] = val[mask]
+                elif val.ndim == 2:
+                    results_short[key] = val[mask, :]
+                else:
+                    results_short[key] = val
+            else:
+                results_short[key] = val
 
         pdf_file_full = plot_results_pdf(results, output_dir, run_name, filename='plots_full.pdf', config_filename=config_filename, use_first_90_percent_for_ylim=True)
         pdf_file_short = plot_results_pdf(results_short, output_dir, run_name, filename='plots_short.pdf', config_filename=config_filename)
