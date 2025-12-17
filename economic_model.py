@@ -141,8 +141,8 @@ def calculate_tendencies(state, params, Omega_yi_prev, Omega_prev, Omega_base_pr
         - 'f': Fraction allocated to abatement vs redistribution
     Omega_yi_prev : np.ndarray
         Climate damage fractions at quadrature points from previous timestep (length N_QUAD).
-        Units: dimensionless (damage at each rank F as fraction of aggregate y_damaged).
-        Scaled by current y_damaged to get per-capita damage in dollars.
+        Units: dimensionless (damage at each rank F as fraction of aggregate y_damaged_prev_scaled).
+        Scaled by current y_damaged_prev_scaled to get per-capita damage in dollars.
         Used to compute current income distribution with lagged damage to avoid circular dependency.
     Omega_prev : float
         Aggregate climate damage fraction from previous timestep.
@@ -261,7 +261,7 @@ def calculate_tendencies(state, params, Omega_yi_prev, Omega_prev, Omega_base_pr
     Omega_base = psi1 * delta_T + psi2 * (delta_T ** 2)
     
     # Convert damage fractions from previous timestep to per-capita damage amounts
-    # Omega_yi_prev is damage as fraction of previous y_damaged, scale by current y_damaged and new Omega_base.
+    # Omega_yi_prev is damage as fraction of previous y_damaged_prev_scaled, scale by current y_damaged_prev_scaled and new Omega_base.
     if Omega_base_prev > EPSILON:
         Omega_prev_scaled = Omega_prev * (Omega_base/Omega_base_prev)
         omega_yi_prev_scaled = Omega_yi_prev * (Omega_base/Omega_base_prev) 
@@ -270,14 +270,16 @@ def calculate_tendencies(state, params, Omega_yi_prev, Omega_prev, Omega_base_pr
         omega_yi_prev_scaled = np.zeros_like(Omega_yi_prev)
 
     # Eq 1.1: Gross production per capita (Cobb-Douglas)
+    # y_gross: gross production before climate damage and abatement cost
     if K > 0 and L > 0:
         y_gross = A * ((K / L) ** alpha)
     else:
         y_gross = 0.0
 
     # Use Omega from previous timestep for budgeting and damage calculations
-    y_damaged = y_gross * (1.0 - Omega_prev_scaled) # gross production per capita net of climate damage
-    climate_damage = Omega_prev_scaled * y_gross # per capita climate damage
+    # y_damaged_prev_scaled: gross production net of climate damage (using previous timestep's damage)
+    y_damaged_prev_scaled = y_gross * (1.0 - Omega_prev_scaled)
+    climate_damage_prev_scaled = Omega_prev_scaled * y_gross
 
     t_setup = time.time()
     _timing_stats['setup_time'] += t_setup - t_start
@@ -286,7 +288,7 @@ def calculate_tendencies(state, params, Omega_yi_prev, Omega_prev, Omega_base_pr
     #  Do redistribution, taxes, utility, etcc
     # -----------------------------------------------------------------------------------------
 
-    if y_gross <= EPSILON or y_damaged <= EPSILON:
+    if y_gross <= EPSILON or y_damaged_prev_scaled <= EPSILON:
         # Economy has collapsed - set all downstream variables to zero or appropriate values
         redistribution_amount = 0.0
         abateCost_amount = 0.0
@@ -306,8 +308,8 @@ def calculate_tendencies(state, params, Omega_yi_prev, Omega_prev, Omega_base_pr
         utility_yi = np.zeros_like(xi)
     else:
         # Economy exists - proceed with calculations
-        
-        available_for_redistribution_and_abatement = fract_gdp *  y_damaged 
+
+        available_for_redistribution_and_abatement = fract_gdp *  y_damaged_prev_scaled 
         
         if income_redistribution:
             redistribution_amount = (1 - f) * available_for_redistribution_and_abatement
@@ -315,13 +317,15 @@ def calculate_tendencies(state, params, Omega_yi_prev, Omega_prev, Omega_base_pr
             redistribution_amount = 0.0
 
         abateCost_amount = f * available_for_redistribution_and_abatement # per capita
-        lambda_abate = abateCost_amount / y_damaged # fraction of damaged production
+        lambda_abate = abateCost_amount / y_damaged_prev_scaled # fraction of damaged production
 
         tax_amount = abateCost_amount + redistribution_amount # per capita
         # tax amount can be less than amount available if redistribution is turned off.
 
         # Eq 1.8 & 1.9: Net production per capita after abatement cost and climate damage
-        y_net = (1.0 - lambda_abate) * y_damaged 
+        # y_net (aggregate): gross production net of climate damage and abatement cost
+        # Note: consumption + savings = y_net
+        y_net = (1.0 - lambda_abate) * y_damaged_prev_scaled 
 
         # Find uniform redistribution amount
         if income_redistribution and income_dependent_redistribution_policy:
@@ -335,7 +339,7 @@ def calculate_tendencies(state, params, Omega_yi_prev, Omega_prev, Omega_base_pr
         if income_dependent_tax_policy:
             tax_amount = abateCost_amount + redistribution_amount
         else:
-            uniform_tax_rate = (abateCost_amount + redistribution_amount) / y_damaged
+            uniform_tax_rate = (abateCost_amount + redistribution_amount) / y_damaged_prev_scaled
             Fmax = 1.0
 
         #------------------------------------------------------
@@ -343,6 +347,7 @@ def calculate_tendencies(state, params, Omega_yi_prev, Omega_prev, Omega_base_pr
         # To simplify we are going to shift the calculation to discrete intervals of population
         # governed by the Gaussian Laegendre nodes and weights, xi and wi
     
+        y_damaged_and_uniform = y_damaged_prev_scaled * (1.0 - uniform_tax_rate) + uniform_redistribution_amount
 
         # Find Fmin using current Omega_base
         # For income-dependent redistribution, find Fmin such that redistribution matches target
@@ -399,6 +404,17 @@ def calculate_tendencies(state, params, Omega_yi_prev, Omega_prev, Omega_base_pr
         # Compute consumption, aggregate utility for the Fmin and Fmax region, and at each of the Gauss-Legendre quadrature nodes
         # Also calculate climate damage for next time step.
         # Divide calculation into three segments: [0, Fmin], [Fmin, Fmax], [Fmax, 1]
+        #
+        # Summary of y variants (income flow):
+        # 1. y_gross: gross production before climate damage and abatement cost
+        # 2. y_damaged_prev_scaled: gross production net of climate damage (using previous timestep's damage)
+        # 3. y_net (aggregate): gross production net of climate damage and abatement cost
+        # 4. y_damaged_and_uniform: gross production net of climate damage, uniform distributions, and uniform taxes
+        #                           (intermediate concept, calculated via y_of_F_after_damage for middle segment)
+        # 5. y_net_yi (individual): individual income net of climate damage, abatement cost,
+        #                           uniform distributions, uniform taxes, and income-dependent
+        #                           redistributions and taxes
+        # Note: consumption + savings = y_net
         lorenz_fractions_yi = L_pareto(Fi_edges[1:], gini) - L_pareto(Fi_edges[:-1],gini) # fraction of income in each bin
         lorenz_ratio_yi = lorenz_fractions_yi/Fwi # ratio of mean income in each bin to aggregate mean income
 
@@ -600,12 +616,12 @@ def calculate_tendencies(state, params, Omega_yi_prev, Omega_prev, Omega_base_pr
 
         # Calculate total (upper-case) variables from per capita variables for recording output
         Y_gross = y_gross * L  # Total gross production
-        Y_damaged = y_damaged * L  # Total damaged production
+        Y_damaged = y_damaged_prev_scaled * L  # Total damaged production
         Y_net = y_net * L  # Total net production
         AbateCost = abateCost_amount * L  # Total abatement cost
         Lambda = lambda_abate  # Abatement cost fraction (same for total and per capita)
         E = e * L  # Total emissions
-        Climate_damage = climate_damage * L  # Total climate damage
+        Climate_damage = climate_damage_prev_scaled * L  # Total climate damage
         Consumption = (1 - s) * Y_net  # Total consumption
         consumption = (1 - s) * y_net  # Per capita consumption
         Savings = s * Y_net  # Total savings
@@ -655,8 +671,8 @@ def calculate_tendencies(state, params, Omega_yi_prev, Omega_prev, Omega_base_pr
             'Y_damaged': Y_damaged,
             'Y_net': Y_net,
             'y_net': y_net,
-            'y_damaged': y_damaged,  # Per capita gross production after climate damage
-            'climate_damage': climate_damage,  # Per capita climate damage
+            'y_damaged': y_damaged_prev_scaled,  # Per capita gross production after climate damage
+            'climate_damage': climate_damage_prev_scaled,  # Per capita climate damage
             'redistribution': redistribution,
             'redistribution_amount': redistribution_amount,  # Per capita redistribution amount
             'Redistribution_amount': Redistribution_amount,  # Total redistribution amount
