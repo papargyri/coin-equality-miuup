@@ -336,6 +336,8 @@ def calculate_tendencies(state, params, omega_yi_Omega_base_ratio_prev, Omega_Om
             uniform_redistribution_amount = redistribution_amount
 
         # Pre-compute uniform tax rate when policy is uniform so Fmin uses taxed income
+        # Uniform tax always covers full budget (abatement + redistribution)
+        # Fmin is calculated AFTER uniform tax to ensure equal consumption below Fmin
         if income_dependent_tax_policy:
             uniform_tax_rate = 0.0
         else:
@@ -423,12 +425,10 @@ def calculate_tendencies(state, params, omega_yi_Omega_base_ratio_prev, Omega_Om
         consumption_yi = np.zeros_like(xi)
         utility_yi = np.zeros_like(xi)
         omega_yi = np.zeros_like(xi)
-        aggregate_utility = 0.0
 
         # Segment 1: Low-income earners receiving income-dependent redistribution [0, Fmin]
         t_before_seg1 = time.time()
         if Fmin > EPSILON:
-
             # People below Fmin pay uniform tax on Lorenz income, then receive untaxed subsidy
             # The subsidy lifts them to the income level at Fmin
             # This ensures continuity: no perverse incentive to be just below Fmin
@@ -437,19 +437,7 @@ def calculate_tendencies(state, params, omega_yi_Omega_base_ratio_prev, Omega_Om
                 y_gross, omega_yi_calc, Fi_edges,
                 uniform_tax_rate, uniform_redistribution_amount, gini,
             )
-
-            # Set y_net_yi for bins below Fmin
-            for i in range(len(Fi_edges) - 1):
-                if Fi_edges[i+1] <= Fmin:
-                    # Bin completely below Fmin
-                    y_net_yi[i] = min_y_net
-                elif Fi_edges[i] < Fmin <= Fi_edges[i+1]:
-                    # Bin containing Fmin - weight by fraction below Fmin
-                    fraction_below = (Fmin - Fi_edges[i]) / Fwi[i]
-                    y_net_yi[i] = min_y_net * fraction_below
-
             min_consumption = min_y_net * (1 - s)
-            aggregate_utility += crra_utility_interval(0, Fmin, min_consumption, eta)
             omega_min = Omega_base * (min_y_net/y_net_reference)**(-y_damage_distribution_exponent)
 
             # Calculate utility for segment 1
@@ -458,15 +446,17 @@ def calculate_tendencies(state, params, omega_yi_Omega_base_ratio_prev, Omega_Om
             else:
                 min_utility = (np.maximum(min_consumption, EPSILON) ** (1 - eta)) / (1 - eta)
 
-            # Set omega_yi and utility_yi for bins below Fmin (same approach as y_net_yi)
+            # Set y_net_yi, omega_yi, and utility_yi for bins below/containing Fmin
             for i in range(len(Fi_edges) - 1):
                 if Fi_edges[i+1] <= Fmin:
                     # Bin completely below Fmin
+                    y_net_yi[i] = min_y_net
                     omega_yi[i] = omega_min
                     utility_yi[i] = min_utility
                 elif Fi_edges[i] < Fmin <= Fi_edges[i+1]:
                     # Bin containing Fmin - weight by fraction below Fmin
                     fraction_below = (Fmin - Fi_edges[i]) / Fwi[i]
+                    y_net_yi[i] = min_y_net * fraction_below
                     omega_yi[i] = omega_min * fraction_below
                     utility_yi[i] = min_utility * fraction_below
 
@@ -475,24 +465,12 @@ def calculate_tendencies(state, params, omega_yi_Omega_base_ratio_prev, Omega_Om
         # Segment 3: High-income earners paying income-dependent tax [Fmax, 1]
         t_before_seg3 = time.time()
         if 1.0 - Fmax > EPSILON:
-
             max_y_net = y_net_of_F(
                 Fmax, Fmin, Fmax,
                 y_gross, omega_yi_calc, Fi_edges,
                 uniform_tax_rate, uniform_redistribution_amount, gini,
             )
-
-            # Set y_net_yi for bins above Fmax
-            for i in range(len(Fi_edges) - 1):
-                if Fi_edges[i] >= Fmax:
-                    # Bin completely above Fmax
-                    y_net_yi[i] = max_y_net
-                elif Fi_edges[i] < Fmax <= Fi_edges[i+1]:
-                    # Bin containing Fmax - weight by fraction above Fmax
-                    fraction_above = (Fi_edges[i+1] - Fmax) / Fwi[i]
-                    y_net_yi[i] = max_y_net * fraction_above
             max_consumption = max_y_net * (1 - s)
-            aggregate_utility += crra_utility_interval(Fmax, 1.0, max_consumption, eta)
             omega_max = Omega_base * (max_y_net/y_net_reference)**(-y_damage_distribution_exponent)
 
             # Calculate utility for segment 3
@@ -501,15 +479,17 @@ def calculate_tendencies(state, params, omega_yi_Omega_base_ratio_prev, Omega_Om
             else:
                 max_utility = (np.maximum(max_consumption, EPSILON) ** (1 - eta)) / (1 - eta)
 
-            # Set omega_yi and utility_yi for bins above Fmax (same approach as y_net_yi)
+            # Set y_net_yi, omega_yi, and utility_yi for bins above/containing Fmax
             for i in range(len(Fi_edges) - 1):
                 if Fi_edges[i] >= Fmax:
                     # Bin completely above Fmax
+                    y_net_yi[i] = max_y_net
                     omega_yi[i] = omega_max
                     utility_yi[i] = max_utility
                 elif Fi_edges[i] < Fmax <= Fi_edges[i+1]:
                     # Bin containing Fmax - weight by fraction above Fmax
                     fraction_above = (Fi_edges[i+1] - Fmax) / Fwi[i]
+                    y_net_yi[i] = max_y_net * fraction_above
                     omega_yi[i] = omega_max * fraction_above
                     utility_yi[i] = max_utility * fraction_above
 
@@ -566,10 +546,10 @@ def calculate_tendencies(state, params, omega_yi_Omega_base_ratio_prev, Omega_Om
                     omega_yi[i] += omega_yi_mid[i] * fraction_middle
                     utility_yi[i] += utility_vals[i] * fraction_middle
 
-            # Gauss-Legendre quadrature over [Fmin, Fmax]: (Fmax-Fmin)/2 maps from [-1,1] to [Fmin,Fmax]
-            aggregate_utility += (Fmax - Fmin) / 2.0 * np.sum(wi * utility_vals)
-
         _timing_stats['segment2_time'] += time.time() - t_before_seg2
+
+        # Calculate aggregate utility by summing over all bins
+        aggregate_utility = np.sum(Fwi * utility_yi)
 
         if not income_dependent_aggregate_damage and income_dependent_damage_distribution:
             # Only rescale if we have income-dependent distribution but want aggregate to match temperature-based damage

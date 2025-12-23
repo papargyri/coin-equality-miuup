@@ -160,49 +160,69 @@ These strategies ensure the model has well-defined, explicit calculations at eac
 
 #### Tax and Redistribution Logic
 
-**Key Principle: Separation of Tax and Redistribution**
+**Order of Operations**
 
-Taxes and redistributions are independent operations applied sequentially to income:
+Income flows through the following sequence:
 
+1. **Gross income** at rank F: `y_lorenz(F) = y_gross * dL/dF(F)` (Lorenz curve)
+2. **After climate damage**: `y_damaged(F) = y_lorenz(F) * (1 - omega(F))`
+3. **After uniform tax** (if applicable): `y_after_tax(F) = y_damaged(F) * (1 - uniform_tax_rate)`
+4. **After income-dependent tax** (if applicable): Progressive tax applied only to F > Fmax
+5. **After redistribution** (added, not taxed): `y_net(F) = y_after_tax(F) + redistribution(F)`
+
+Final formula:
 ```
-y_net(F) = [y_lorenz(F) * (1 - omega(F))] * (1 - tax_rate(F)) + redistribution(F)
+y_net(F) = [y_gross * dL/dF(F) * (1 - omega(F))] * (1 - tax_rate(F)) + redistribution(F)
 ```
 
 where:
-- `y_lorenz(F) = y_gross * dL/dF(F)` is the Lorenz curve income at rank F
-- `omega(F)` is the climate damage fraction at rank F
-- `tax_rate(F)` is either uniform or income-dependent (progressive)
-- `redistribution(F)` is either uniform or income-dependent (targeted)
+- `tax_rate(F)` is either uniform (same for all F) or income-dependent (non-zero only for F > Fmax)
+- `redistribution(F)` is either uniform (same for all F) or income-dependent (non-zero only for F < Fmin)
 
-**Important:**
-- **Taxes are applied to Lorenz income** (before redistribution is added)
-- **Redistribution is not taxed** (it is added after tax)
+**Key Principles:**
+- **Taxes are applied to post-damage Lorenz income** (before redistribution is added)
+- **Redistribution is not taxed** (it is added after all taxes)
 - **Everyone can both pay tax AND receive redistribution**
-- The tax on the redistribution subsidy is zero
+- Consumption, savings, utility, and next-timestep climate damage are all based on y_net(F)
 
 **Finding Fmin (Income-Dependent Redistribution Threshold):**
 
-Fmin is the maximum income rank receiving targeted redistribution. It is calculated to match the redistribution budget based on **post-damage Lorenz income only** (no taxes, no uniform redistribution):
+When `income_dependent_redistribution_policy = true`, Fmin is the maximum income rank receiving targeted redistribution.
+
+**Important:** Fmin is calculated AFTER uniform taxes (if any) to ensure everyone below Fmin has the same consumption.
+
+The calculation finds Fmin such that the cost of bringing everyone below Fmin up to the income level at Fmin equals the redistribution budget:
 
 ```
-target_subsidy = ∫₀^Fmin [y_post_damage(Fmin) - y_post_damage(F)] dF
+redistribution_amount = ∫₀^Fmin [y_after_tax(Fmin) - y_after_tax(F)] dF
 ```
 
-where `y_post_damage(F) = y_gross * dL/dF(F) * (1 - omega(F))`.
+where:
+- `y_after_tax(F) = y_gross * dL/dF(F) * (1 - omega(F)) * (1 - uniform_tax_rate)`
+- If there is no uniform tax, `uniform_tax_rate = 0`
+- If there is uniform tax, `uniform_tax_rate = (abateCost_amount + redistribution_amount) / y_damaged`
 
 **Finding Fmax (Income-Dependent Tax Threshold):**
 
-Fmax is the minimum income rank paying progressive taxation. It is calculated to match the tax revenue target based on **post-damage Lorenz income only** (no taxes, no uniform redistribution):
+When `income_dependent_tax_policy = true`, Fmax is the minimum income rank paying progressive taxation.
+
+The calculation finds Fmax such that progressive taxation on those above Fmax generates the target tax revenue:
 
 ```
-target_tax = ∫_Fmax^1 [y_post_damage(F) - y_post_damage(Fmax)] dF
+tax_amount = ∫_Fmax^1 [y_damaged(F) - y_damaged(Fmax)] dF
 ```
 
-**Rationale:**
-- Fmin and Fmax define income thresholds based on the underlying income distribution
-- They determine **who** pays/receives, not **how much** (that's determined by tax_rate and redistribution)
-- Including taxes or redistributions in their calculation would create circular dependencies
-- Climate damage affects the income distribution, so omega(F) must be included
+where `y_damaged(F) = y_gross * dL/dF(F) * (1 - omega(F))`
+
+**Budget Flow:**
+
+The total available budget is `fract_gdp * y_damaged` per capita, which is allocated as:
+- Abatement: `f * fract_gdp * y_damaged` per capita
+- Redistribution: `(1 - f) * fract_gdp * y_damaged` per capita
+
+This total budget is collected via:
+- **Uniform tax policy**: Everyone pays `fract_gdp` fraction of their post-damage income
+- **Income-dependent tax policy**: Only those with F > Fmax pay progressive tax
 
 **Examples:**
 
