@@ -14,7 +14,6 @@ This document provides complete technical documentation for the COIN_equality mo
   - [Scalar Parameters (Time-Invariant)](#scalar-parameters-time-invariant)
   - [Time-Dependent Functions](#time-dependent-functions)
   - [Control Variables](#control-variables)
-  - [Policy Switches](#policy-switches)
   - [Integration Parameters](#integration-parameters)
 - [Model Features](#model-features)
   - [Simplifying Assumptions](#simplifying-assumptions)
@@ -79,10 +78,10 @@ The differential equation solver uses climate damage from the previous timestep 
 **Tax and Redistribution (using previous damage):**
 9. **redistribution_amount** from fract_gdp, f, y_gross, Omega (total per-capita redistribution)
 10. **Fmin, uniform_redistribution_amount** from income_dependent_redistribution_policy:
-   - If income-dependent: find_Fmin_analytical() computes critical rank using analytical Lorenz integrals
+   - If income-dependent: find_Fmin() computes critical rank using root finding with analytical Lorenz integrals
    - If uniform: Fmin = 0, uniform_redistribution = redistribution_amount
 11. **Fmax, uniform_tax_rate** from income_dependent_tax_policy:
-   - If income-dependent: find_Fmax_analytical() computes critical rank using analytical Lorenz integrals
+   - If income-dependent: find_Fmax() computes critical rank using root finding with analytical Lorenz integrals
    - If uniform: Fmax = 1.0, uniform_tax_rate = (abateCost + redistribution) / (y_gross * (1 - Omega))
 
 **Segment-wise Integration (F-space with Fi_edges):**
@@ -286,7 +285,7 @@ The model uses climate damage from the previous timestep to avoid circular depen
 - As `ΔT → 0`: `Ω_base → 0` and `Ω → 0` (no damage)
 
 **Implementation:**
-The damage integrals are computed using Gauss-Legendre quadrature (N_QUAD = 32 points) with analytical Lorenz curve integration and stepwise functions from `distribution_utilities.py`. Income at each quadrature point is computed using `y_of_F_lagged_damage()`, which uses damage from the previous timestep, eliminating the need for iterative convergence. The critical ranks Fmin and Fmax are found using `find_Fmin_analytical()` and `find_Fmax_analytical()`, which employ closed-form Lorenz integrals for ~1000× speedup over numerical quadrature.
+The damage integrals are computed using Gauss-Legendre quadrature (N_QUAD = 32 points) with analytical Lorenz curve integration and stepwise functions from `distribution_utilities.py`. The model uses damage ratios from the previous timestep, scaled by the current Omega_base, eliminating the need for iterative convergence. The critical ranks Fmin and Fmax are found using `find_Fmin()` and `find_Fmax()`, which employ root finding with closed-form Lorenz integrals.
 
 **Eq. (1.3) - Damaged Production:**
 ```
@@ -558,7 +557,7 @@ The system begins at the background inequality level.
 Climate damage is computed using the income distribution from the previous timestep to avoid circular dependencies. The algorithm integrates damage over the income distribution accounting for:
 - Income-dependent damage function: damage(y) = omega_base * (y / y_net_reference)^y_damage_distribution_exponent
 - Progressive taxation and targeted redistribution via critical ranks (Fmin, Fmax)
-- Analytical Lorenz integrals for finding critical ranks (Fmin, Fmax) with ~1000× speedup over numerical quadrature
+- Root finding with analytical Lorenz integrals for computing critical ranks (Fmin, Fmax)
 
 The effective income distribution evolves through:
 ```
@@ -635,47 +634,7 @@ When both `control_function` and `s_control_function` are present, the model ope
 
 ### Policy Switches
 
-The model has 5 boolean switches controlling different policy features. Three are **primary switches** and two are **sub-switches** that are only meaningful when their parent switch is enabled:
-
-#### Primary Switches
-
-1. **`income_dependent_damage_distribution`** (boolean, default: true)
-   - Controls whether climate damage varies by income level
-   - When true: Poor people experience higher damage (exponential in income)
-   - When false: Everyone experiences the same damage (uniform)
-   - Parent switch for: `income_dependent_aggregate_damage`
-
-2. **`income_redistribution`** (boolean, default: true)
-   - Controls whether income redistribution is enabled
-   - When true: Redistributes from high to low income according to `redistribution_amount`
-   - When false: No redistribution occurs
-   - Parent switch for: `income_dependent_redistribution_policy`
-
-3. **`income_dependent_tax_policy`** (boolean, default: false)
-   - Controls whether taxation is progressive or uniform
-   - When true: Progressive tax using `find_Fmax()` to determine tax threshold
-   - When false: Uniform tax rate applied to all income
-
-#### Sub-Switches (Only Meaningful with Parent Enabled)
-
-4. **`income_dependent_aggregate_damage`** (boolean, default: true)
-   - **Parent switch: `income_dependent_damage_distribution`**
-   - **Only meaningful when parent is true**
-   - Controls how aggregate damage is calculated when damage varies by income
-   - When true: Aggregate damage computed directly from income distribution
-   - When false: Rescale damage distribution to match `Omega_base * y_net_aggregate`, where `y_net_aggregate` is mean net income after taxes/transfers
-   - Note: When `income_dependent_damage_distribution = false`, damages are naturally proportional to `y_net`, so this flag has no effect
-   - Code enforces: Only checked when `income_dependent_damage_distribution` is true
-
-5. **`income_dependent_redistribution_policy`** (boolean, default: false)
-   - **Parent switch: `income_redistribution`**
-   - **Only meaningful when parent is true**
-   - Controls whether redistribution is targeted or uniform
-   - When true: Targeted to lowest incomes using `find_Fmin()` to determine threshold
-   - When false: Uniform per-capita redistribution to all
-   - Code enforces: Only checked when `income_redistribution` is true
-
-**Important**: The code automatically enforces these dependencies. Sub-switches are only evaluated when their parent switch is enabled, ensuring logically consistent behavior.
+See [README.md](README.md#policy-switches) for documentation on the 5 boolean policy switches that control model behavior.
 
 ### Integration Parameters
 
@@ -732,10 +691,10 @@ The `distribution_utilities.py` module provides the core mathematical functions 
 **Income After Damage:**
 - **`y_of_F_after_damage(F, Fmin, Fmax, y_mean_before_damage, omega_base, y_damage_distribution_exponent, y_net_reference, uniform_redistribution, gini, branch=0)`** - Computes income at rank F accounting for climate damage. For exponent = 0.5, uses analytic solution via quadratic formula. For other exponents, uses numerical root finding (scipy.optimize.fsolve) to solve the implicit equation where damage depends on income which depends on damage. Returns array of incomes corresponding to input ranks.
 
-**Critical Rank Finding (Analytical):**
-- **`find_Fmax_analytical(Fmin, y_gross, gini, damage_yi, Fi_edges, uniform_redistribution, target_tax, tol=LOOSE_EPSILON)`** - Finds the minimum income rank that pays progressive taxation using analytical Lorenz curve integration. Uses stepwise_interpolate() and stepwise_integrate() for damage terms. Much faster than quadrature-based approach. Returns Fmax ∈ [0, 1].
+**Critical Rank Finding:**
+- **`find_Fmax(...)`** - Finds the minimum income rank that pays progressive taxation. Uses root finding with analytical Lorenz curve integration and stepwise_interpolate()/stepwise_integrate() for damage terms. Returns Fmax ∈ [0, 1].
 
-- **`find_Fmin_analytical(y_gross, gini, damage_yi, Fi_edges, uniform_redistribution, target_subsidy, tol=LOOSE_EPSILON)`** - Finds the maximum income rank that receives targeted redistribution using analytical Lorenz curve integration. Uses stepwise functions for damage terms. Returns Fmin ∈ [0, 1].
+- **`find_Fmin(...)`** - Finds the maximum income rank that receives targeted redistribution. Uses root finding with analytical Lorenz curve integration and stepwise functions for damage terms. Returns Fmin ∈ [0, 1].
 
 **Stepwise Interpolation and Integration:**
 - **`stepwise_interpolate(F, yi, Fi_edges)`** - Evaluates a stepwise (piecewise constant) function at point(s) F. Returns yi[i] for F in [Fi_edges[i], Fi_edges[i+1]).
@@ -753,12 +712,9 @@ The `distribution_utilities.py` module provides the core mathematical functions 
 
 ```python
 from distribution_utilities import (
-    y_of_F_after_damage,
-    find_Fmax_analytical,
-    find_Fmin_analytical,
     stepwise_interpolate,
     stepwise_integrate,
-    crra_utility_integral_with_damage
+    crra_utility_interval
 )
 from scipy.special import roots_legendre
 import numpy as np
@@ -768,15 +724,11 @@ xi, wi = roots_legendre(32)
 xi_edges = -1.0 + np.concatenate(([0.0], np.cumsum(wi)))
 Fi_edges = (xi_edges + 1.0) / 2.0
 
-# Find critical ranks using analytical method
-Fmax = find_Fmax_analytical(Fmin, y_gross, gini, damage_yi, Fi_edges,
-                            uniform_redist, target_tax=1000.0)
-Fmin = find_Fmin_analytical(y_gross, gini, damage_yi, Fi_edges,
-                            uniform_redist, target_subsidy=500.0)
+# Use stepwise functions for damage distribution
+damage_yi = stepwise_interpolate(Fi, damage_values, Fi_edges)
 
-# Compute utility in middle segment
-U_middle = crra_utility_integral_with_damage(Fmin, Fmax, Fmin, Fmax, y_mean,
-                                            Omega_base, y_scale, uniform_redist, gini, eta, xi, wi)
+# Compute utility for flat income segment
+U_segment = crra_utility_interval(F0, F1, c_mean, eta)
 ```
 
 ## Parameter Organization
@@ -844,13 +796,11 @@ Each JSON configuration file must contain:
    - `type`: "constant" or "piecewise_constant"
    - Type-specific parameters (e.g., `value` for constant)
 
-See `config_baseline.json` for extensive examples of documentation.
+See existing configuration files like `test_f-f-f-t-t.json` for examples of complete configuration documentation.
 
 ### Example Configuration
 
-See `config_baseline.json` for a complete example. To create new scenarios, copy and modify this file.
-
-**Note**: `config_DICE_000.json` provides a configuration for simulations close to the parameters and setup presented in Barrage & Nordhaus (2023), including Gompertz population growth, double exponential functions for carbon intensity and abatement costs, and settings that replicate DICE2023 behavior (income_redistribution = false for pure abatement mode, gini = 0.0 for no inequality).
+See `test_f-f-f-t-t.json` for a complete example. To create new scenarios, copy and modify this file.
 
 **Example: Population with Gompertz growth**
 ```json
@@ -887,7 +837,7 @@ See `config_baseline.json` for a complete example. To create new scenarios, copy
 ```python
 from parameters import load_configuration
 
-config = load_configuration('config_baseline.json')
+config = load_configuration('test_f-f-f-t-t.json')
 # config.run_name contains the run identifier
 # config.scalar_params, config.time_functions, etc. are populated
 ```
@@ -898,18 +848,20 @@ The `evaluate_params_at_time(t, config)` helper combines all parameters into a d
 
 The project includes a comprehensive test script to verify the forward model integration and demonstrate the complete workflow from configuration loading through output generation.
 
+**Important**: When testing the forward model with `test_integration.py`, the control variables (f and s) remain **constant** at their initial guess values for the entire simulation. This is not an optimization—it simply runs the model forward in time with fixed control policies to verify model behavior.
+
 #### Quick Start
 
-To test the model with the baseline configuration:
+To test the model with an example configuration:
 
 ```bash
-python test_integration.py config_baseline.json
+python test_integration.py test_f-f-f-t-t.json
 ```
 
 This command will:
-1. Load the baseline configuration from `config_baseline.json`
+1. Load the configuration
 2. Display key model parameters and setup information
-3. Run the forward integration over the specified time period
+3. Run the forward integration over the specified time period with **constant control variables**
 4. Show detailed results summary (initial state, final state, changes)
 5. Generate timestamped output directory with CSV data and PDF plots
 
@@ -923,11 +875,11 @@ python test_integration.py <config_file>
 
 **Examples:**
 ```bash
-# Test with baseline scenario
-python test_integration.py config_baseline.json
+# Test with example configuration
+python test_integration.py test_f-f-f-t-t.json
 
-# Test with high inequality scenario
-python test_integration.py config_high_inequality.json
+# Test with alternative configuration
+python test_integration.py test_f-f-f-t-f.json
 
 # Test with custom configuration
 python test_integration.py my_custom_config.json
@@ -968,15 +920,15 @@ The PDF contains four organized sections:
 Create new test scenarios by copying and modifying configuration files:
 
 ```bash
-# Copy baseline configuration
-cp config_baseline.json config_my_test.json
+# Copy example configuration
+cp test_f-f-f-t-t.json config_my_test.json
 
 # Edit parameters in config_my_test.json
 # Then test with:
 python test_integration.py config_my_test.json
 ```
 
-This testing framework validates the complete model pipeline and provides immediate visual feedback on model behavior through the generated charts.
+This testing framework validates the complete model pipeline and provides immediate visual feedback on model behavior through the generated charts. Remember that the control variables remain constant during forward integration—to find optimal time-varying control policies, use `run_optimization.py` instead.
 
 ### Running Optimizations with Parameter Overrides
 
@@ -994,16 +946,16 @@ python run_optimization.py config.json --key.subkey.value new_value
 
 ```bash
 # Override single parameter
-python run_optimization.py config_baseline.json --scalar_parameters.alpha 0.35
+python run_optimization.py test_f-f-f-t-t.json --scalar_parameters.alpha 0.35
 
 # Override multiple parameters
-python run_optimization.py config_baseline.json \
+python run_optimization.py test_f-f-f-t-t.json \
   --run_name "sensitivity_test" \
   --optimization_parameters.initial_guess 0.3 \
   --scalar_parameters.rho 0.015
 
 # Override nested parameters
-python run_optimization.py config_baseline.json \
+python run_optimization.py test_f-f-f-t-t.json \
   --time_functions.A.growth_rate 0.02 \
   --optimization_parameters.n_points_final 100
 ```
@@ -1023,7 +975,7 @@ python run_optimization.py config_baseline.json \
 The `run_initial_guess_sweep.py` script demonstrates automated testing across multiple parameter values:
 
 ```bash
-python run_initial_guess_sweep.py config_baseline.json
+python run_initial_guess_sweep.py test_f-f-f-t-t.json
 ```
 
 This runs optimization 11 times with `initial_guess` values from 0.0 to 1.0 (step 0.1), automatically creating separate output directories for each run.
@@ -1033,7 +985,7 @@ This runs optimization 11 times with `initial_guess` values from 0.0 to 1.0 (ste
 ```python
 import subprocess
 
-config_file = "config_baseline.json"
+config_file = "test_f-f-f-t-t.json"
 
 # Sweep over alpha values
 for alpha in [0.25, 0.30, 0.35, 0.40]:
@@ -1071,16 +1023,16 @@ python run_parallel.py <pattern1> [pattern2] [...] [--key value] [...]
 python run_parallel.py "config_COIN-equality_000*.json"
 
 # Run specific configuration files
-python run_parallel.py config_baseline.json config_sensitivity.json
+python run_parallel.py test_f-f-f-t-t.json test_f-f-f-t-f.json
 
-# Run multiple patterns
-python run_parallel.py "config_COIN*.json" "config_DICE*.json"
+# Run multiple patterns (use wildcard patterns for multiple files)
+python run_parallel.py "test_*.json"
 
 # Quick test with reduced evaluations (applied to all jobs)
-python run_parallel.py "config_*.json" --optimization_params.max_evaluations 100
+python run_parallel.py "test_*.json" --optimization_params.max_evaluations 100
 
 # Override multiple parameters
-python run_parallel.py "config_*.json" --optimization_params.max_evaluations 100 --run_name quick_test
+python run_parallel.py "test_*.json" --optimization_params.max_evaluations 100 --run_name quick_test
 ```
 
 #### How It Works
@@ -1228,9 +1180,9 @@ The tool compares data from two sources:
 **Sequential execution:**
 ```bash
 # Run parameter sweep one at a time
-python run_optimization.py config_baseline.json --scalar_parameters.eta 0.5 --run_name eta_0.5
-python run_optimization.py config_baseline.json --scalar_parameters.eta 1.0 --run_name eta_1.0
-python run_optimization.py config_baseline.json --scalar_parameters.eta 1.5 --run_name eta_1.5
+python run_optimization.py test_f-f-f-t-t.json --scalar_parameters.eta 0.5 --run_name eta_0.5
+python run_optimization.py test_f-f-f-t-t.json --scalar_parameters.eta 1.0 --run_name eta_1.0
+python run_optimization.py test_f-f-f-t-t.json --scalar_parameters.eta 1.5 --run_name eta_1.5
 
 # Compare results (creates data/output/comparison_YYYYMMDD-HHMMSS/)
 python compare_results.py "data/output/eta_*/"
@@ -1266,7 +1218,7 @@ The model uses Euler's method with fixed time steps for transparent integration 
 from economic_model import integrate_model
 from parameters import load_configuration
 
-config = load_configuration('config_baseline.json')
+config = load_configuration('test_f-f-f-t-t.json')
 results = integrate_model(config)
 ```
 
@@ -1302,22 +1254,23 @@ The model includes several optimizations for computational efficiency while main
 Climate damage depends on income distribution, which itself depends on climate damage (through tax/redistribution and damage effects). This circular dependency is resolved using a lagged damage approach that eliminates the need for iterative convergence.
 
 **Lagged Damage Algorithm:**
-1. Initialize Omega_base from temperature: Ω_base = min(psi1·ΔT + psi2·ΔT², 1 - EPSILON)
-2. Use climate damage from the previous timestep to compute current income distribution
-3. Compute critical income ranks (Fmin, Fmax) using analytical Lorenz integrals with stepwise damage functions
-4. Calculate income at each rank using `y_of_F_lagged_damage()` with previous period's damage
-5. Integrate climate damage and utility over three segments: [0, Fmin), [Fmin, Fmax), [Fmax, 1]
-6. If `income_dependent_aggregate_damage = false` and `income_dependent_damage_distribution = true`, rescale damage to match Ω_base × y_net_aggregate
-7. Update Omega from integrated damage for use in next timestep
-8. No within-timestep iteration required - all calculations are explicit
 
-**Performance Characteristics:**
-- **No convergence loops**: Each timestep calculates income distribution explicitly using previous damage
-- **Analytical rank finding**: `find_Fmin_analytical()` and `find_Fmax_analytical()` use closed-form Lorenz integrals
-- **Stepwise functions**: Climate damage represented as piecewise constant over quadrature intervals
-- **Speedup**: ~1000× faster than numerical quadrature-based root finding
-- **Tolerance**: LOOSE_EPSILON (1e-8) used for root finding in analytical rank calculations
-- **Stability**: Eliminates convergence failures and provides deterministic, reproducible results
+The model uses damage information from the previous timestep to avoid circular dependencies between climate damage and income distribution. Two key ratios are stored and propagated:
+
+1. **Calculate current Omega_base from temperature**: Ω_base = psi1·ΔT + psi2·ΔT²
+2. **Reconstruct current damage from stored ratios**:
+   - `omega_yi_Omega_base_ratio_prev`: Distribution of climate damage across income groups relative to Omega_base (from previous timestep)
+   - `Omega_Omega_base_ratio_prev`: Aggregate climate damage relative to Omega_base (from previous timestep)
+   - Current damage estimates: Multiply stored ratios by current Omega_base
+   - Clip scaled values to ensure they remain valid damage fractions [0, 1 - EPSILON]
+3. **Use reconstructed damage for current timestep**:
+   - Compute current income distribution with lagged damage estimates
+   - Calculate taxes, redistribution, and critical income ranks (Fmin, Fmax)
+   - Integrate climate damage and utility over income distribution
+4. **Update ratios for next timestep**:
+   - Compute new damage distribution based on current income distribution
+   - Store new ratios (damage / Omega_base) for use in next timestep
+5. **No within-timestep iteration required** - all calculations are explicit
 
 **2. Gauss-Legendre Quadrature Integration (distribution_utilities.py)**
 
@@ -1332,9 +1285,7 @@ xi, wi = roots_legendre(N_QUAD)  # N_QUAD = 32 quadrature points
 **Integration Functions:**
 - **stepwise_interpolate(F, yi, Fi_edges)**: Evaluates piecewise constant function at rank F
 - **stepwise_integrate(F0, F1, yi, Fi_edges)**: Integrates piecewise constant function from F0 to F1
-- **find_Fmin_analytical()**: Finds minimum rank for taxation using closed-form Lorenz integrals
-- **find_Fmax_analytical()**: Finds maximum rank for subsidies using closed-form Lorenz integrals
-- **y_of_F_lagged_damage()**: Computes income at rank F using previous timestep's damage distribution
+- **Critical ranks (Fmin, Fmax)**: Found via root finding using scipy.optimize with analytical Lorenz integrals
 
 **Performance:**
 - **N_QUAD = 32**: Provides excellent accuracy (~1e-10 relative error) for smooth integrands
@@ -1347,19 +1298,11 @@ Multiple precision levels and iteration parameters:
 
 - **EPSILON = 1e-12**: Strict tolerance for mathematical comparisons (Gini bounds, float comparisons)
 - **LOOSE_EPSILON = 1e-8**: Practical tolerance for root finding and optimization convergence
-  - Used in find_Fmin_analytical() and find_Fmax_analytical() root finding
+  - Used in find_Fmin() and find_Fmax() root finding for critical income ranks
   - Default value for xtol_abs in optimization (control parameter convergence)
 - **N_QUAD = 32**: Number of Gauss-Legendre quadrature points for numerical integration
   - Used for computing income distributions and utility integrals
   - Provides ~1e-10 relative error for smooth integrands
-
-**Cumulative Speedup:**
-
-These optimizations provide significant performance improvements:
-- Lagged damage approach eliminates within-timestep convergence loops
-- Analytical Lorenz integrals provide ~1000× speedup over numerical quadrature
-- 400-year simulation: typically completes in ~0.05 seconds
-- Full optimization (10,000 evaluations): typically completes in ~10 minutes
 
 ### Output Variables
 
@@ -1437,7 +1380,7 @@ from economic_model import integrate_model
 from output import save_results
 
 # Load configuration
-config = load_configuration('config_baseline.json')
+config = load_configuration('test_f-f-f-t-t.json')
 
 # Run model
 results = integrate_model(config)
@@ -1788,8 +1731,5 @@ This runs the model with f=0.5 and s declining linearly from 0.30 to 0.20, witho
 The current implementation uses Gauss-Legendre quadrature with uniform node spacing in the income rank F ∈ [0,1]. However, for Pareto-like income distributions where y(F) ~ (1-F)^(-α) with α ≈ 0.3-0.5, the income function changes rapidly near F=1, suggesting that accuracy could be improved by clustering quadrature points near the upper tail.
 
 **Suggested approaches:**
-1. **Power transformation**: Transform Gauss-Legendre nodes using F = ξ^p with p ≈ 2-3, which clusters points near F=1. Requires including Jacobian factor p*ξ^(p-1) in all integrals.
-2. **Graded mesh**: Use multiple Gauss-Legendre segments with more points in high-income regions (e.g., [0, 0.8], [0.8, 0.95], [0.95, 1.0]).
-3. **Increase quadrature order**: Simple baseline test - increase N_QUAD from current value to 64 or 128 points to assess whether current scheme has sufficient accuracy.
-
-This optimization should be implemented after core model bugs are resolved, as it primarily affects numerical accuracy rather than correctness.
+1. **Graded mesh**: Use multiple Gauss-Legendre segments with more points in high-income regions (e.g., [0, 0.8], [0.8, 0.95], [0.95, 1.0]).
+2. **Increase quadrature order**: Simple baseline test - increase N_QUAD from current value to 64 or 128 points to assess whether current scheme has sufficient accuracy.
