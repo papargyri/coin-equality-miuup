@@ -2,6 +2,33 @@
 
 A simple-as-possible stylized representation of the tradeoff between investment in income redistribution versus investment in emissions abatement.
 
+## Table of Contents
+
+- [Overview](#overview)
+- [Installation and Requirements](#installation-and-requirements)
+   - [Prerequisites](#prerequisites)
+   - [Installing Dependencies](#installing-dependencies)
+- [Quick Start](#quick-start)
+   - [Running a Basic Simulation](#running-a-basic-simulation)
+   - [Running an Optimization](#running-an-optimization)
+   - [Comparing Multiple Scenarios](#comparing-multiple-scenarios)
+- [Model Overview](#model-overview)
+   - [Objective Function](#objective-function)
+   - [Core Components](#core-components)
+   - [Key Insights](#key-insights)
+- [Basic Usage](#basic-usage)
+   - [Configuration Files](#configuration-files)
+   - [Policy Switches](#policy-switches)
+      - [Primary Switches](#primary-switches)
+      - [Sub-Switches (Only Meaningful with Parent Enabled)](#sub-switches-only-meaningful-with-parent-enabled)
+- [Output Files](#output-files)
+- [Running Multiple Cases in Parallel](#running-multiple-cases-in-parallel)
+- [Project Structure](#project-structure)
+- [Documentation](#documentation)
+- [References](#references)
+- [License](#license)
+- [Authors](#authors)
+
 ## Overview
 
 This project develops a highly stylized model of an economy with income inequality, where a specified fraction of gross production is allocated to social good. The central question is how to optimally allocate resources between two competing objectives:
