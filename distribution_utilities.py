@@ -1,8 +1,9 @@
 """
-Income distribution functions and utility integration over Pareto-Lorenz distributions.
+Income distribution functions and utility integration over Lorenz distributions.
 
 This module provides:
-- Pareto-Lorenz income distribution calculations with taxation and redistribution
+- Pareto-Lorenz and Jantzen-Volpert income distribution calculations
+- Progressive taxation and targeted redistribution
 - CRRA utility integration over income distributions
 - Climate damage integration over income distributions
 - Stepwise interpolation and integration utilities for quadrature
@@ -46,6 +47,141 @@ def L_pareto_derivative(F, G):
     return (1.0 - 1.0/a) * (1.0 - F)**(-1.0/a)
 
 
+def jantzen_volpert_g_of_G_approx(G):
+    """
+    Compute asymptotic Gini parameter g from Gini coefficient G using rational approximation.
+
+    Parameters
+    ----------
+    G : float
+        Gini coefficient (0 < G < 1)
+
+    Returns
+    -------
+    float
+        Asymptotic Gini parameter g for symmetric case (G0 = G1 = g)
+
+    Notes
+    -----
+    Uses degree-5 rational approximation in logit space.
+    """
+    eps = 1e-15
+    G = min(1.0 - eps, max(eps, G))
+    x = math.log(G / (1.0 - G))
+
+    p_coeffs = [-0.8122099272657668,
+                 0.7590229262704634,
+                 0.07715073844885287,
+                 0.034431745082181824,
+                 0.002813401584890462,
+                 0.0001622205355418121]
+    q_coeffs = [1.0,
+                0.17402944210833834,
+                0.05460502881404493,
+                0.005397502828274235,
+                0.0002989337896639561,
+                3.0605863217945673e-07]
+
+    Px = 0.0
+    for ck in reversed(p_coeffs):
+        Px = Px * x + ck
+    Qx = 0.0
+    for ck in reversed(q_coeffs):
+        Qx = Qx * x + ck
+    y = Px / Qx
+    return 1.0 / (1.0 + math.exp(-y))
+
+
+def compute_jantzen_volpert_parameters(G):
+    """
+    Compute Jantzen-Volpert parameters (p, q) from Gini coefficient.
+
+    Parameters
+    ----------
+    G : float
+        Gini coefficient (0 < G < 1)
+
+    Returns
+    -------
+    tuple
+        (p, q) parameters for Jantzen-Volpert Lorenz curve L(F) = F^p * (1 - (1-F)^q)
+
+    Notes
+    -----
+    For symmetric case where G0 = G1 = g:
+    - G0 = p / (p + 2) implies p = 2g / (1 - g)
+    - G1 = (1 - q) / (1 + q) implies q = (1 - g) / (1 + g)
+    where g = jantzen_volpert_g_of_G_approx(G)
+    """
+    g = jantzen_volpert_g_of_G_approx(G)
+    p = 2.0 * g / (1.0 - g)
+    q = (1.0 - g) / (1.0 + g)
+    return p, q
+
+
+def L_jantzen_volpert(F, G):
+    """
+    Jantzen-Volpert Lorenz curve at F.
+
+    Parameters
+    ----------
+    F : float or array-like
+        Population rank(s) in [0,1]
+    G : float
+        Gini coefficient
+
+    Returns
+    -------
+    float or ndarray
+        Lorenz curve value L(F) = F^p * (1 - (1-F)^q)
+
+    Notes
+    -----
+    Uses symmetric case G0 = G1 where p and q are computed from G.
+    """
+    p, q = compute_jantzen_volpert_parameters(G)
+    F_arr = np.asarray(F)
+    scalar_input = np.ndim(F) == 0
+
+    F_clipped = np.clip(F_arr, 0.0, 1.0 - EPSILON)
+    result = (F_clipped ** p) * (1.0 - (1.0 - F_clipped) ** q)
+
+    return result[()] if scalar_input else result
+
+
+def L_jantzen_volpert_derivative(F, G):
+    """
+    Derivative of Jantzen-Volpert Lorenz curve dL/dF at F.
+
+    Parameters
+    ----------
+    F : float or array-like
+        Population rank(s) in [0,1]
+    G : float
+        Gini coefficient
+
+    Returns
+    -------
+    float or ndarray
+        Derivative dL/dF = p * F^(p-1) * (1 - (1-F)^q) + F^p * q * (1-F)^(q-1)
+
+    Notes
+    -----
+    Uses symmetric case G0 = G1 where p and q are computed from G.
+    """
+    p, q = compute_jantzen_volpert_parameters(G)
+    F_arr = np.asarray(F)
+    scalar_input = np.ndim(F) == 0
+
+    F_clipped = np.clip(F_arr, EPSILON, 1.0 - EPSILON)
+
+    term1 = p * (F_clipped ** (p - 1.0)) * (1.0 - (1.0 - F_clipped) ** q)
+    term2 = (F_clipped ** p) * q * ((1.0 - F_clipped) ** (q - 1.0))
+    result = term1 + term2
+
+    return result[()] if scalar_input else result
+
+
 def _phi(r):
     """Helper for bracketing cap; φ(r) = (r-1) r^{1/(r-1)-1}."""
     if r <= 0:
@@ -66,7 +202,8 @@ _first_call_diagnostics_printed = False
 _call_counter = 0
 
 
-def y_net_of_F(F, Fmin, Fmax, y_gross, omega_yi_calc, Fi_edges, uniform_tax_rate, uniform_redistribution, gini):
+def y_net_of_F(F, Fmin, Fmax, y_gross, omega_yi_calc, Fi_edges, uniform_tax_rate, uniform_redistribution, gini,
+               use_jantzen_volpert):
     """
     Compute net income y_net(F) at population rank F after accounting for damage, tax, and redistribution.
 
@@ -77,8 +214,7 @@ def y_net_of_F(F, Fmin, Fmax, y_gross, omega_yi_calc, Fi_edges, uniform_tax_rate
 
     where:
         omega_prev_F = stepwise_interpolate(F, omega_yi_calc, Fi_edges)  [damage fraction at rank F]
-        dL/dF(F) = (1 - 1/a) * (1 - F)^(-1/a)  [Pareto-Lorenz derivative]
-        a = (1 + 1/gini)/2  [Pareto shape parameter]
+        dL/dF(F) = Lorenz derivative (Pareto or Jantzen-Volpert formulation)
 
     Parameters
     ----------
@@ -100,6 +236,8 @@ def y_net_of_F(F, Fmin, Fmax, y_gross, omega_yi_calc, Fi_edges, uniform_tax_rate
         Uniform per-capita redistribution amount.
     gini : float
         Gini index (0 < gini < 1).
+    use_jantzen_volpert : bool
+        If True, use Jantzen-Volpert Lorenz formulation; if False, use Pareto.
 
     Returns
     -------
@@ -121,11 +259,11 @@ def y_net_of_F(F, Fmin, Fmax, y_gross, omega_yi_calc, Fi_edges, uniform_tax_rate
     # Get damage fraction at rank F via stepwise interpolation
     omega_prev_F = stepwise_interpolate(F, omega_yi_calc, Fi_edges)
 
-    # Pareto-Lorenz shape parameter from Gini
-    a = (1.0 + 1.0 / gini) / 2.0
-
-    # dL/dF(F) for Pareto-Lorenz
-    dLdF = (1.0 - 1.0 / a) * (1.0 - F) ** (-1.0 / a)
+    # dL/dF(F) - choose formulation
+    if use_jantzen_volpert:
+        dLdF = L_jantzen_volpert_derivative(F, gini)
+    else:
+        dLdF = L_pareto_derivative(F, gini)
 
     # Compute net income: Lorenz → Damage → Tax → Redistribution (untaxed)
     y_net_F = y_gross * dLdF * (1.0 - omega_prev_F) * (1.0 - uniform_tax_rate) + uniform_redistribution
@@ -147,6 +285,7 @@ def find_Fmax(
     redistribution_amount,
     abateCost_amount,
     Fi_edges,
+    use_jantzen_volpert,
     tol=LOOSE_EPSILON,
     initial_guess=None,
 ):
@@ -192,6 +331,8 @@ def find_Fmax(
         Per-capita abatement cost amount.
     Fi_edges : ndarray
         Interval boundaries for stepwise damage (length N+1).
+    use_jantzen_volpert : bool
+        If True, use Jantzen-Volpert Lorenz formulation; if False, use Pareto.
     tol : float, optional
         Tolerance for root finding (default LOOSE_EPSILON).
     initial_guess : float, optional
@@ -213,17 +354,26 @@ def find_Fmax(
     # Since omega is stepwise constant in each bin, integrate dL/dF over each bin
     bin_widths = np.diff(Fi_edges)
     # Integral of dL/dF from Fi_edges[i] to Fi_edges[i+1] = L(Fi_edges[i+1]) - L(Fi_edges[i])
-    lorenz_diff = np.diff(L_pareto(Fi_edges, gini))
+    if use_jantzen_volpert:
+        lorenz_diff = np.diff(L_jantzen_volpert(Fi_edges, gini))
+    else:
+        lorenz_diff = np.diff(L_pareto(Fi_edges, gini))
     damage_per_bin = omega_yi * y_gross * lorenz_diff
     damage_cumulative = np.concatenate(([0.0], np.cumsum(damage_per_bin)))
     total_damage_integral = damage_cumulative[-1]
 
     def tax_revenue_minus_target(Fmax):
-        # Lorenz contribution from Pareto distribution
-        lorenz_part = y_gross * (
-            (1.0 - L_pareto(Fmax, gini)) -
-            (1.0 - Fmax) * L_pareto_derivative(Fmax, gini)
-        )
+        # Lorenz contribution
+        if use_jantzen_volpert:
+            lorenz_part = y_gross * (
+                (1.0 - L_jantzen_volpert(Fmax, gini)) -
+                (1.0 - Fmax) * L_jantzen_volpert_derivative(Fmax, gini)
+            )
+        else:
+            lorenz_part = y_gross * (
+                (1.0 - L_pareto(Fmax, gini)) -
+                (1.0 - Fmax) * L_pareto_derivative(Fmax, gini)
+            )
 
         # Fast damage calculation using pre-computed cumulative integrals
         # Find which bin Fmax is in
@@ -248,7 +398,10 @@ def find_Fmax(
         damage_integral = total_damage_integral - damage_integral_0_to_Fmax
 
         # Damage at Fmax based on income at Fmax (uniform redistribution is excluded; tax is zero here)
-        damage_at_Fmax = y_gross * L_pareto_derivative(Fmax, gini) * omega_at_Fmax
+        if use_jantzen_volpert:
+            damage_at_Fmax = y_gross * L_jantzen_volpert_derivative(Fmax, gini) * omega_at_Fmax
+        else:
+            damage_at_Fmax = y_gross * L_pareto_derivative(Fmax, gini) * omega_at_Fmax
         damage_part = damage_integral - (1.0 - Fmax) * damage_at_Fmax
 
         # Tax revenue (uniform redistribution cancels out)
@@ -308,6 +461,7 @@ def find_Fmin(
     redistribution_amount,
     uniform_tax_rate,
     Fi_edges,
+    use_jantzen_volpert,
     tol=LOOSE_EPSILON,
     initial_guess=None,
 ):
@@ -352,6 +506,8 @@ def find_Fmin(
         Uniform tax rate (fraction of income).
     Fi_edges : ndarray
         Interval boundaries for stepwise damage (length N+1).
+    use_jantzen_volpert : bool
+        If True, use Jantzen-Volpert Lorenz formulation; if False, use Pareto.
     tol : float, optional
         Tolerance for root finding (default LOOSE_EPSILON).
     initial_guess : float, optional
@@ -374,18 +530,27 @@ def find_Fmin(
     # Since omega is stepwise constant in each bin, integrate dL/dF over each bin
     bin_widths = np.diff(Fi_edges)
     # Integral of dL/dF from Fi_edges[i] to Fi_edges[i+1] = L(Fi_edges[i+1]) - L(Fi_edges[i])
-    lorenz_diff = np.diff(L_pareto(Fi_edges, gini))  # L at each edge
+    if use_jantzen_volpert:
+        lorenz_diff = np.diff(L_jantzen_volpert(Fi_edges, gini))
+    else:
+        lorenz_diff = np.diff(L_pareto(Fi_edges, gini))
     damage_per_bin = omega_yi * y_gross * lorenz_diff * (1.0 - uniform_tax_rate)
     damage_cumulative = np.concatenate(([0.0], np.cumsum(damage_per_bin)))
 
     def subsidy_minus_target(Fmin):
 
 
-        # Lorenz contribution from Pareto distribution
-        # difference if everyone ewere consuming at Fmin rate minus actural integrated to Fmin.
-        lorenz_part = y_gross * (1.0 - uniform_tax_rate) * (
-            Fmin * L_pareto_derivative(Fmin, gini) - L_pareto(Fmin, gini)
-        )
+        # Lorenz contribution
+        # difference if everyone were consuming at Fmin rate minus actual integrated to Fmin.
+        if use_jantzen_volpert:
+            lorenz_part = y_gross * (1.0 - uniform_tax_rate) * (
+                Fmin * L_jantzen_volpert_derivative(Fmin, gini) -
+                L_jantzen_volpert(Fmin, gini)
+            )
+        else:
+            lorenz_part = y_gross * (1.0 - uniform_tax_rate) * (
+                Fmin * L_pareto_derivative(Fmin, gini) - L_pareto(Fmin, gini)
+            )
 
         # Fast damage calculation using pre-computed cumulative integrals
         # Find which bin Fmin is in
@@ -394,7 +559,10 @@ def find_Fmin(
 
         # Omega_yi at Fmin is constant within bin (stepwise function)
         # Order: Lorenz → Damage → Tax
-        damage_at_Fmin = y_gross * L_pareto_derivative(Fmin, gini) * omega_yi[bin_idx] * (1.0 - uniform_tax_rate)
+        if use_jantzen_volpert:
+            damage_at_Fmin = y_gross * L_jantzen_volpert_derivative(Fmin, gini) * omega_yi[bin_idx] * (1.0 - uniform_tax_rate)
+        else:
+            damage_at_Fmin = y_gross * L_pareto_derivative(Fmin, gini) * omega_yi[bin_idx] * (1.0 - uniform_tax_rate)
 
         # Integral from 0 to Fmin = cumulative up to bin start + partial bin
         if Fmin <= Fi_edges[0]:

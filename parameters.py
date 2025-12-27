@@ -337,6 +337,10 @@ class ScalarParameters:
         If True, targeted redistribution (benefits to lowest income)
         If False, uniform dividend (equal per-capita payment)
         Only applies when income_redistribution=True
+    use_jantzen_volpert : bool
+        If True, use Jantzen-Volpert Lorenz formulation L(F) = F^p * (1 - (1-F)^q)
+        If False, use Pareto-Lorenz formulation (default)
+        Parameters (p, q) are derived from Gini coefficient using symmetric case G0=G1=g
     """
     alpha: float
     delta: float
@@ -355,6 +359,7 @@ class ScalarParameters:
     income_dependent_tax_policy: bool
     income_redistribution: bool
     income_dependent_redistribution_policy: bool
+    use_jantzen_volpert: bool = False
     mu_max: float = None  # Will be set to INVERSE_EPSILON in __post_init__ if None
     Ecum_initial: float = 0.0  # Default to zero (no prior emissions)
 
@@ -694,6 +699,9 @@ def evaluate_params_at_time(t, config):
         'sigma': tf['sigma'](t),
         'theta1': tf['theta1'](t),
         'gini': tf['gini'](t),
+
+        # Lorenz formulation parameters
+        'use_jantzen_volpert': sp.use_jantzen_volpert,
     }
 
     # Dual control function evaluation returns (f, s)

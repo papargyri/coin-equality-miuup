@@ -14,6 +14,8 @@ from distribution_utilities import (
     find_Fmin,
     L_pareto,
     L_pareto_derivative,
+    L_jantzen_volpert,
+    L_jantzen_volpert_derivative,
     stepwise_interpolate,
     stepwise_integrate
 )
@@ -210,6 +212,7 @@ def calculate_tendencies(state, params, omega_yi_Omega_base_ratio_prev, Omega_Om
     mu_max = params['mu_max']
     fract_gdp = params['fract_gdp']
     gini = params['gini']
+    use_jantzen_volpert = params['use_jantzen_volpert']
     f = params['f']
     y_damage_distribution_exponent = params['y_damage_distribution_exponent']
     y_net_reference = params['y_net_reference']
@@ -360,6 +363,7 @@ def calculate_tendencies(state, params, omega_yi_Omega_base_ratio_prev, Omega_Om
                 Fmin = find_Fmin(1.0 - EPSILON,
                     y_gross, gini, Omega_calc, omega_yi_calc,
                     redistribution_amount, uniform_tax_rate, Fi_edges,
+                    use_jantzen_volpert,
                     initial_guess=Fmin_prev,
                 )
                 _timing_stats['find_Fmin_time'] += time.time() - t_before_fmin
@@ -393,6 +397,7 @@ def calculate_tendencies(state, params, omega_yi_Omega_base_ratio_prev, Omega_Om
                 Fmax = find_Fmax(Fmin,
                     y_gross, gini, Omega_calc, omega_yi_calc,
                     redistribution_amount, abateCost_amount, Fi_edges,
+                    use_jantzen_volpert,
                     initial_guess=Fmax_prev,
                 )
                 _timing_stats['find_Fmax_time'] += time.time() - t_before_fmax
@@ -417,7 +422,12 @@ def calculate_tendencies(state, params, omega_yi_Omega_base_ratio_prev, Omega_Om
         #                           uniform distributions, uniform taxes, and income-dependent
         #                           redistributions and taxes
         # Note: consumption + savings = y_net
-        lorenz_fractions_yi = L_pareto(Fi_edges[1:], gini) - L_pareto(Fi_edges[:-1],gini) # fraction of income in each bin
+        # Fraction of income in each bin
+        if use_jantzen_volpert:
+            lorenz_fractions_yi = L_jantzen_volpert(Fi_edges[1:], gini) - \
+                                  L_jantzen_volpert(Fi_edges[:-1], gini)
+        else:
+            lorenz_fractions_yi = L_pareto(Fi_edges[1:], gini) - L_pareto(Fi_edges[:-1], gini)
         lorenz_ratio_yi = lorenz_fractions_yi/Fwi # ratio of mean income in each bin to aggregate mean income
 
         y_net_yi = np.zeros_like(xi)
@@ -435,6 +445,7 @@ def calculate_tendencies(state, params, omega_yi_Omega_base_ratio_prev, Omega_Om
                 Fmin, Fmin, Fmax,
                 y_gross, omega_yi_calc, Fi_edges,
                 uniform_tax_rate, uniform_redistribution_amount, gini,
+                use_jantzen_volpert,
             )
             min_consumption = min_y_net * (1 - s)
             omega_min = Omega_base * (min_y_net/y_net_reference)**(-y_damage_distribution_exponent)
@@ -468,6 +479,7 @@ def calculate_tendencies(state, params, omega_yi_Omega_base_ratio_prev, Omega_Om
                 Fmax, Fmin, Fmax,
                 y_gross, omega_yi_calc, Fi_edges,
                 uniform_tax_rate, uniform_redistribution_amount, gini,
+                use_jantzen_volpert,
             )
             max_consumption = max_y_net * (1 - s)
             omega_max = Omega_base * (max_y_net/y_net_reference)**(-y_damage_distribution_exponent)
@@ -502,6 +514,7 @@ def calculate_tendencies(state, params, omega_yi_Omega_base_ratio_prev, Omega_Om
                 Fi, Fmin, Fmax,
                 y_gross, omega_yi_calc, Fi_edges,
                 uniform_tax_rate, uniform_redistribution_amount, gini,
+                use_jantzen_volpert,
             )
 
             # Calculate climate damage at quadrature points for next timestep
