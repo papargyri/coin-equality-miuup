@@ -28,7 +28,7 @@
         "_K_initial": "Initial capital stock ($). Represents total productive capital at start of simulation.",
         "y_net_reference": 17210.79,
         "_y_net_reference": "Reference net income level ($) for income-dependent damage calculation. Typically set to current global average net income.",
-        "y_damage_distribution_exponent": 0.5,
+        "y_damage_distribution_exponent": 0.41,
         "_y_damage_distribution_exponent": "Exponent for income-dependent damage distribution.",
         "income_dependent_damage_distribution": false,
         "_income_dependent_damage_distribution": "If true, damage weighted towards low-income (uses y_damage_distribution_exponent and y_net_reference)",
