@@ -122,7 +122,7 @@ The model combines three subsystems:
    - Cobb-Douglas production function
    - Capital accumulation with depreciation
    - Climate damage reducing output
-   - Income distribution (Pareto-Lorenz)
+   - Income distribution (Pareto-Lorenz or Empirical Lorenz)
 
 2. **Climate Model**
    - Temperature proportional to cumulative emissions
@@ -133,6 +133,40 @@ The model combines three subsystems:
    - CRRA (isoelastic) utility function
    - Income-dependent climate damage
    - Redistribution via progressive taxation
+
+#### Empirical Lorenz Formulation
+
+The model supports an empirical Lorenz curve formulation as an alternative to the Pareto-Lorenz distribution. The base empirical Lorenz curve is defined as:
+
+```
+L_base(F) = w₀·F^p₀ + w₁·F^p₁ + w₂·F^p₂ + w₃·F^p₃
+```
+
+where w₀ = (1 - w₁ - w₂ - w₃), and the parameters are:
+
+| Parameter | Value |
+|-----------|-------|
+| p₀ | 1.500036 |
+| w₁ | 0.3776187268483524 |
+| p₁ | 4.367440 |
+| w₂ | 0.3671247620949191 |
+| p₂ | 14.072005 |
+| w₃ | 0.09538538350961864 |
+| p₃ | 135.059674 |
+
+The base Gini coefficient is computed as:
+
+```
+Gini_base = 1 - 2·[w₀/(p₀+1) + w₁/(p₁+1) + w₂/(p₂+1) + w₃/(p₃+1)]
+```
+
+To construct a Lorenz curve for an arbitrary Gini coefficient G, we use linear interpolation between perfect equality and the base curve:
+
+```
+L(F) = (1 - G/Gini_base)·F + (G/Gini_base)·L_base(F)
+```
+
+This formulation is controlled by the `use_empirical_lorenz` boolean parameter in the configuration.
 
 ### Key Insights
 

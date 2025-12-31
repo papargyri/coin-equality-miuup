@@ -54,3 +54,19 @@ MAX_ITERATIONS = 256
 
 # N_QUAD removed - now specified in config.integration_params.n_quad
 # This enforces explicit configuration (no defaults per CLAUDE.md)
+
+# Empirical Lorenz curve base parameters
+# The base empirical Lorenz curve is: L_base(F) = w₀·F^p₀ + w₁·F^p₁ + w₂·F^p₂ + w₃·F^p₃
+# where w₀ = 1 - w₁ - w₂ - w₃
+# For arbitrary Gini G: L(F) = (1 - G/Gini_base)·F + (G/Gini_base)·L_base(F)
+
+# Power parameters for each term in the base Lorenz curve
+EMPIRICAL_LORENZ_P0 = 1.500036
+EMPIRICAL_LORENZ_P1 = 4.367440
+EMPIRICAL_LORENZ_P2 = 14.072005
+EMPIRICAL_LORENZ_P3 = 135.059674
+
+# Weight parameters for terms 1, 2, and 3 (w₀ is computed as 1 - w₁ - w₂ - w₃)
+EMPIRICAL_LORENZ_W1 = 3.776187268483524e-01
+EMPIRICAL_LORENZ_W2 = 3.671247620949191e-01
+EMPIRICAL_LORENZ_W3 = 9.538538350961864e-02

@@ -2,7 +2,7 @@
 Income distribution functions and utility integration over Lorenz distributions.
 
 This module provides:
-- Pareto-Lorenz and Jantzen-Volpert income distribution calculations
+- Pareto-Lorenz and Empirical income distribution calculations
 - Progressive taxation and targeted redistribution
 - CRRA utility integration over income distributions
 - Climate damage integration over income distributions
@@ -12,7 +12,18 @@ This module provides:
 import math
 import numpy as np
 from scipy.optimize import root_scalar, fsolve, newton
-from constants import EPSILON, LOOSE_EPSILON, MAX_ITERATIONS
+from constants import (
+    EPSILON,
+    LOOSE_EPSILON,
+    MAX_ITERATIONS,
+    EMPIRICAL_LORENZ_P0,
+    EMPIRICAL_LORENZ_P1,
+    EMPIRICAL_LORENZ_P2,
+    EMPIRICAL_LORENZ_P3,
+    EMPIRICAL_LORENZ_W1,
+    EMPIRICAL_LORENZ_W2,
+    EMPIRICAL_LORENZ_W3,
+)
 
 
 #========================================================================================
@@ -44,141 +55,140 @@ def L_pareto(F, G):
 def L_pareto_derivative(F, G):
     """Derivative of Lorenz curve dL/dF at F for Pareto-Lorenz distribution with Gini coefficient G."""
     a = a_from_G(G)
-    return (1.0 - 1.0/a) * (1.0 - F)**(-1.0/a)
-
-
-def jantzen_volpert_g_of_G_approx(G):
-    """
-    Compute asymptotic Gini parameter g from Gini coefficient G using rational approximation.
-
-    Parameters
-    ----------
-    G : float
-        Gini coefficient (0 < G < 1)
-
-    Returns
-    -------
-    float
-        Asymptotic Gini parameter g for symmetric case (G0 = G1 = g)
-
-    Notes
-    -----
-    Uses degree-5 rational approximation in logit space.
-    """
-    eps = 1e-15
-    G = min(1.0 - eps, max(eps, G))
-    x = math.log(G / (1.0 - G))
-
-    p_coeffs = [-0.8122099272657668,
-                 0.7590229262704634,
-                 0.07715073844885287,
-                 0.034431745082181824,
-                 0.002813401584890462,
-                 0.0001622205355418121]
-    q_coeffs = [1.0,
-                0.17402944210833834,
-                0.05460502881404493,
-                0.005397502828274235,
-                0.0002989337896639561,
-                3.0605863217945673e-07]
-
-    Px = 0.0
-    for ck in reversed(p_coeffs):
-        Px = Px * x + ck
-    Qx = 0.0
-    for ck in reversed(q_coeffs):
-        Qx = Qx * x + ck
-    y = Px / Qx
-    return 1.0 / (1.0 + math.exp(-y))
-
-
-def compute_jantzen_volpert_parameters(G):
-    """
-    Compute Jantzen-Volpert parameters (p, q) from Gini coefficient.
-
-    Parameters
-    ----------
-    G : float
-        Gini coefficient (0 < G < 1)
-
-    Returns
-    -------
-    tuple
-        (p, q) parameters for Jantzen-Volpert Lorenz curve L(F) = F^p * (1 - (1-F)^q)
-
-    Notes
-    -----
-    For symmetric case where G0 = G1 = g:
-    - G0 = p / (p + 2) implies p = 2g / (1 - g)
-    - G1 = (1 - q) / (1 + q) implies q = (1 - g) / (1 + g)
-    where g = jantzen_volpert_g_of_G_approx(G)
-    """
-    g = jantzen_volpert_g_of_G_approx(G)
-    p = 2.0 * g / (1.0 - g)
-    q = (1.0 - g) / (1.0 + g)
-    return p, q
-
-
-def L_jantzen_volpert(F, G):
-    """
-    Jantzen-Volpert Lorenz curve at F.
-
-    Parameters
-    ----------
-    F : float or array-like
-        Population rank(s) in [0,1]
-    G : float
-        Gini coefficient
-
-    Returns
-    -------
-    float or ndarray
-        Lorenz curve value L(F) = F^p * (1 - (1-F)^q)
-
-    Notes
-    -----
-    Uses symmetric case G0 = G1 where p and q are computed from G.
-    """
-    p, q = compute_jantzen_volpert_parameters(G)
-    F_arr = np.asarray(F)
-    scalar_input = np.ndim(F) == 0
-
-    F_clipped = np.clip(F_arr, 0.0, 1.0 - EPSILON)
-    result = (F_clipped ** p) * (1.0 - (1.0 - F_clipped) ** q)
-
-    return result[()] if scalar_input else result
-
-
-def L_jantzen_volpert_derivative(F, G):
-    """
-    Derivative of Jantzen-Volpert Lorenz curve dL/dF at F.
-
-    Parameters
-    ----------
-    F : float or array-like
-        Population rank(s) in [0,1]
-    G : float
-        Gini coefficient
-
-    Returns
-    -------
-    float or ndarray
-        Derivative dL/dF = p * F^(p-1) * (1 - (1-F)^q) + F^p * q * (1-F)^(q-1)
-
-    Notes
-    -----
-    Uses symmetric case G0 = G1 where p and q are computed from G.
-    """
-    p, q = compute_jantzen_volpert_parameters(G)
     F_arr = np.asarray(F)
     scalar_input = np.ndim(F) == 0
 
     F_clipped = np.clip(F_arr, EPSILON, 1.0 - EPSILON)
+    result = (1.0 - 1.0/a) * (1.0 - F_clipped)**(-1.0/a)
 
-    term1 = p * (F_clipped ** (p - 1.0)) * (1.0 - (1.0 - F_clipped) ** q)
-    term2 = (F_clipped ** p) * q * ((1.0 - F_clipped) ** (q - 1.0))
-    result = term1 + term2
+    return result[()] if scalar_input else result
 
+
+def compute_empirical_lorenz_base_gini():
+    """
+    Compute the base Gini coefficient for the empirical Lorenz curve.
+
+    Returns
+    -------
+    float
+        Base Gini coefficient: Gini_base = 1 - 2·[w₀/(p₀+1) + w₁/(p₁+1) + w₂/(p₂+1) + w₃/(p₃+1)]
+        where w₀ = 1 - w₁ - w₂ - w₃
+    """
+    w0 = 1.0 - EMPIRICAL_LORENZ_W1 - EMPIRICAL_LORENZ_W2 - EMPIRICAL_LORENZ_W3
+    sum_term = (w0 / (EMPIRICAL_LORENZ_P0 + 1.0) +
+                EMPIRICAL_LORENZ_W1 / (EMPIRICAL_LORENZ_P1 + 1.0) +
+                EMPIRICAL_LORENZ_W2 / (EMPIRICAL_LORENZ_P2 + 1.0) +
+                EMPIRICAL_LORENZ_W3 / (EMPIRICAL_LORENZ_P3 + 1.0))
+    return 1.0 - 2.0 * sum_term
+
+
+def L_empirical_lorenz_base(F):
+    """
+    Base empirical Lorenz curve at F.
+
+    Parameters
+    ----------
+    F : float or array-like
+        Population rank(s) in [0,1]
+
+    Returns
+    -------
+    float or ndarray
+        Base Lorenz curve value: L_base(F) = w₀·F^p₀ + w₁·F^p₁ + w₂·F^p₂ + w₃·F^p₃
+        where w₀ = 1 - w₁ - w₂ - w₃
+    """
+    w0 = 1.0 - EMPIRICAL_LORENZ_W1 - EMPIRICAL_LORENZ_W2 - EMPIRICAL_LORENZ_W3
+    F_arr = np.asarray(F)
+    scalar_input = np.ndim(F) == 0
+    F_clipped = np.clip(F_arr, 0.0, 1.0)
+    result = (w0 * (F_clipped ** EMPIRICAL_LORENZ_P0) +
+              EMPIRICAL_LORENZ_W1 * (F_clipped ** EMPIRICAL_LORENZ_P1) +
+              EMPIRICAL_LORENZ_W2 * (F_clipped ** EMPIRICAL_LORENZ_P2) +
+              EMPIRICAL_LORENZ_W3 * (F_clipped ** EMPIRICAL_LORENZ_P3))
+    return result[()] if scalar_input else result
+
+
+def L_empirical_lorenz_base_derivative(F):
+    """
+    Derivative of base empirical Lorenz curve dL_base/dF at F.
+
+    Parameters
+    ----------
+    F : float or array-like
+        Population rank(s) in [0,1]
+
+    Returns
+    -------
+    float or ndarray
+        Derivative: dL_base/dF = w₀·p₀·F^(p₀-1) + w₁·p₁·F^(p₁-1) + w₂·p₂·F^(p₂-1) + w₃·p₃·F^(p₃-1)
+        where w₀ = 1 - w₁ - w₂ - w₃
+    """
+    w0 = 1.0 - EMPIRICAL_LORENZ_W1 - EMPIRICAL_LORENZ_W2 - EMPIRICAL_LORENZ_W3
+    F_arr = np.asarray(F)
+    scalar_input = np.ndim(F) == 0
+    F_clipped = np.clip(F_arr, EPSILON, 1.0)
+    result = (w0 * EMPIRICAL_LORENZ_P0 * (F_clipped ** (EMPIRICAL_LORENZ_P0 - 1.0)) +
+              EMPIRICAL_LORENZ_W1 * EMPIRICAL_LORENZ_P1 * (F_clipped ** (EMPIRICAL_LORENZ_P1 - 1.0)) +
+              EMPIRICAL_LORENZ_W2 * EMPIRICAL_LORENZ_P2 * (F_clipped ** (EMPIRICAL_LORENZ_P2 - 1.0)) +
+              EMPIRICAL_LORENZ_W3 * EMPIRICAL_LORENZ_P3 * (F_clipped ** (EMPIRICAL_LORENZ_P3 - 1.0)))
+    return result[()] if scalar_input else result
+
+
+def L_empirical_lorenz(F, G):
+    """
+    Empirical Lorenz curve at F for Gini coefficient G.
+
+    Parameters
+    ----------
+    F : float or array-like
+        Population rank(s) in [0,1]
+    G : float
+        Gini coefficient
+
+    Returns
+    -------
+    float or ndarray
+        Lorenz curve value: L(F) = (1 - G/Gini_base)·F + (G/Gini_base)·L_base(F)
+
+    Notes
+    -----
+    Uses linear interpolation between perfect equality (L=F) and the base empirical curve.
+    """
+    Gini_base = compute_empirical_lorenz_base_gini()
+    alpha = G / Gini_base
+    F_arr = np.asarray(F)
+    scalar_input = np.ndim(F) == 0
+    L_base = L_empirical_lorenz_base(F_arr)
+    result = (1.0 - alpha) * F_arr + alpha * L_base
+    return result[()] if scalar_input else result
+
+
+def L_empirical_lorenz_derivative(F, G):
+    """
+    Derivative of empirical Lorenz curve dL/dF at F for Gini coefficient G.
+
+    Parameters
+    ----------
+    F : float or array-like
+        Population rank(s) in [0,1]
+    G : float
+        Gini coefficient
+
+    Returns
+    -------
+    float or ndarray
+        Derivative: dL/dF = (1 - G/Gini_base) + (G/Gini_base)·dL_base/dF
+
+    Notes
+    -----
+    Derivative of the linear interpolation between perfect equality and the base curve.
+    """
+    Gini_base = compute_empirical_lorenz_base_gini()
+    alpha = G / Gini_base
+    F_arr = np.asarray(F)
+    scalar_input = np.ndim(F) == 0
+    dL_base_dF = L_empirical_lorenz_base_derivative(F_arr)
+    result = (1.0 - alpha) + alpha * dL_base_dF
     return result[()] if scalar_input else result
 
 
@@ -203,7 +213,7 @@ _call_counter = 0
 
 
 def y_net_of_F(F, Fmin, Fmax, y_gross, omega_yi_calc, Fi_edges, uniform_tax_rate, uniform_redistribution, gini,
-               use_jantzen_volpert):
+               use_empirical_lorenz):
     """
     Compute net income y_net(F) at population rank F after accounting for damage, tax, and redistribution.
 
@@ -214,7 +224,7 @@ def y_net_of_F(F, Fmin, Fmax, y_gross, omega_yi_calc, Fi_edges, uniform_tax_rate
 
     where:
         omega_prev_F = stepwise_interpolate(F, omega_yi_calc, Fi_edges)  [damage fraction at rank F]
-        dL/dF(F) = Lorenz derivative (Pareto or Jantzen-Volpert formulation)
+        dL/dF(F) = Lorenz derivative (Pareto or Empirical formulation)
 
     Parameters
     ----------
@@ -236,8 +246,8 @@ def y_net_of_F(F, Fmin, Fmax, y_gross, omega_yi_calc, Fi_edges, uniform_tax_rate
         Uniform per-capita redistribution amount.
     gini : float
         Gini index (0 < gini < 1).
-    use_jantzen_volpert : bool
-        If True, use Jantzen-Volpert Lorenz formulation; if False, use Pareto.
+    use_empirical_lorenz : bool
+        If True, use Empirical Lorenz formulation; if False, use Pareto.
 
     Returns
     -------
@@ -260,8 +270,8 @@ def y_net_of_F(F, Fmin, Fmax, y_gross, omega_yi_calc, Fi_edges, uniform_tax_rate
     omega_prev_F = stepwise_interpolate(F, omega_yi_calc, Fi_edges)
 
     # dL/dF(F) - choose formulation
-    if use_jantzen_volpert:
-        dLdF = L_jantzen_volpert_derivative(F, gini)
+    if use_empirical_lorenz:
+        dLdF = L_empirical_lorenz_derivative(F, gini)
     else:
         dLdF = L_pareto_derivative(F, gini)
 
@@ -285,7 +295,7 @@ def find_Fmax(
     redistribution_amount,
     abateCost_amount,
     Fi_edges,
-    use_jantzen_volpert,
+    use_empirical_lorenz,
     tol=LOOSE_EPSILON,
     initial_guess=None,
 ):
@@ -331,8 +341,8 @@ def find_Fmax(
         Per-capita abatement cost amount.
     Fi_edges : ndarray
         Interval boundaries for stepwise damage (length N+1).
-    use_jantzen_volpert : bool
-        If True, use Jantzen-Volpert Lorenz formulation; if False, use Pareto.
+    use_empirical_lorenz : bool
+        If True, use Empirical Lorenz formulation; if False, use Pareto.
     tol : float, optional
         Tolerance for root finding (default LOOSE_EPSILON).
     initial_guess : float, optional
@@ -354,8 +364,8 @@ def find_Fmax(
     # Since omega is stepwise constant in each bin, integrate dL/dF over each bin
     bin_widths = np.diff(Fi_edges)
     # Integral of dL/dF from Fi_edges[i] to Fi_edges[i+1] = L(Fi_edges[i+1]) - L(Fi_edges[i])
-    if use_jantzen_volpert:
-        lorenz_diff = np.diff(L_jantzen_volpert(Fi_edges, gini))
+    if use_empirical_lorenz:
+        lorenz_diff = np.diff(L_empirical_lorenz(Fi_edges, gini))
     else:
         lorenz_diff = np.diff(L_pareto(Fi_edges, gini))
     damage_per_bin = omega_yi * y_gross * lorenz_diff
@@ -364,10 +374,10 @@ def find_Fmax(
 
     def tax_revenue_minus_target(Fmax):
         # Lorenz contribution
-        if use_jantzen_volpert:
+        if use_empirical_lorenz:
             lorenz_part = y_gross * (
-                (1.0 - L_jantzen_volpert(Fmax, gini)) -
-                (1.0 - Fmax) * L_jantzen_volpert_derivative(Fmax, gini)
+                (1.0 - L_empirical_lorenz(Fmax, gini)) -
+                (1.0 - Fmax) * L_empirical_lorenz_derivative(Fmax, gini)
             )
         else:
             lorenz_part = y_gross * (
@@ -398,8 +408,8 @@ def find_Fmax(
         damage_integral = total_damage_integral - damage_integral_0_to_Fmax
 
         # Damage at Fmax based on income at Fmax (uniform redistribution is excluded; tax is zero here)
-        if use_jantzen_volpert:
-            damage_at_Fmax = y_gross * L_jantzen_volpert_derivative(Fmax, gini) * omega_at_Fmax
+        if use_empirical_lorenz:
+            damage_at_Fmax = y_gross * L_empirical_lorenz_derivative(Fmax, gini) * omega_at_Fmax
         else:
             damage_at_Fmax = y_gross * L_pareto_derivative(Fmax, gini) * omega_at_Fmax
         damage_part = damage_integral - (1.0 - Fmax) * damage_at_Fmax
@@ -410,8 +420,11 @@ def find_Fmax(
         target_tax = abateCost_amount + redistribution_amount
         return tax_revenue - target_tax
 
+    # Upper bound for F depends on whether we have singularities
+    F_upper = 1.0 if use_empirical_lorenz else 1.0 - EPSILON
+
     # Use secant method if we have a good initial guess, otherwise fall back to brentq
-    if initial_guess is not None and Fmin < initial_guess < 1.0 - EPSILON:
+    if initial_guess is not None and Fmin < initial_guess < F_upper:
         # First, check if the initial guess is already very close to the solution
         f_guess = tax_revenue_minus_target(initial_guess)
         if abs(f_guess) < tol:
@@ -421,18 +434,18 @@ def find_Fmax(
         try:
             # Secant needs two starting points; use initial_guess and a small perturbation
             x0 = initial_guess
-            x1 = initial_guess + 0.001 * (1.0 - EPSILON - Fmin)  # Small step towards the middle
-            x1 = np.clip(x1, Fmin + EPSILON, 1.0 - EPSILON)
+            x1 = initial_guess + 0.001 * (F_upper - Fmin)  # Small step towards the middle
+            x1 = np.clip(x1, Fmin + EPSILON, F_upper)
 
             sol = root_scalar(tax_revenue_minus_target, method='secant', x0=x0, x1=x1, xtol=tol, maxiter=50)
-            if sol.converged and Fmin <= sol.root <= 1.0 - EPSILON:
+            if sol.converged and Fmin <= sol.root <= F_upper:
                 return sol.root
         except (ValueError, RuntimeError):
             pass  # Fall through to bracketing method
 
     # Fall back to bracketing method if secant fails or no initial guess
     left = Fmin
-    right = 1.0 - EPSILON
+    right = F_upper
     f_left = tax_revenue_minus_target(left)
     f_right = tax_revenue_minus_target(right)
 
@@ -461,7 +474,7 @@ def find_Fmin(
     redistribution_amount,
     uniform_tax_rate,
     Fi_edges,
-    use_jantzen_volpert,
+    use_empirical_lorenz,
     tol=LOOSE_EPSILON,
     initial_guess=None,
 ):
@@ -506,8 +519,8 @@ def find_Fmin(
         Uniform tax rate (fraction of income).
     Fi_edges : ndarray
         Interval boundaries for stepwise damage (length N+1).
-    use_jantzen_volpert : bool
-        If True, use Jantzen-Volpert Lorenz formulation; if False, use Pareto.
+    use_empirical_lorenz : bool
+        If True, use Empirical Lorenz formulation; if False, use Pareto.
     tol : float, optional
         Tolerance for root finding (default LOOSE_EPSILON).
     initial_guess : float, optional
@@ -530,8 +543,8 @@ def find_Fmin(
     # Since omega is stepwise constant in each bin, integrate dL/dF over each bin
     bin_widths = np.diff(Fi_edges)
     # Integral of dL/dF from Fi_edges[i] to Fi_edges[i+1] = L(Fi_edges[i+1]) - L(Fi_edges[i])
-    if use_jantzen_volpert:
-        lorenz_diff = np.diff(L_jantzen_volpert(Fi_edges, gini))
+    if use_empirical_lorenz:
+        lorenz_diff = np.diff(L_empirical_lorenz(Fi_edges, gini))
     else:
         lorenz_diff = np.diff(L_pareto(Fi_edges, gini))
     damage_per_bin = omega_yi * y_gross * lorenz_diff * (1.0 - uniform_tax_rate)
@@ -542,10 +555,10 @@ def find_Fmin(
 
         # Lorenz contribution
         # difference if everyone were consuming at Fmin rate minus actual integrated to Fmin.
-        if use_jantzen_volpert:
+        if use_empirical_lorenz:
             lorenz_part = y_gross * (1.0 - uniform_tax_rate) * (
-                Fmin * L_jantzen_volpert_derivative(Fmin, gini) -
-                L_jantzen_volpert(Fmin, gini)
+                Fmin * L_empirical_lorenz_derivative(Fmin, gini) -
+                L_empirical_lorenz(Fmin, gini)
             )
         else:
             lorenz_part = y_gross * (1.0 - uniform_tax_rate) * (
@@ -559,8 +572,8 @@ def find_Fmin(
 
         # Omega_yi at Fmin is constant within bin (stepwise function)
         # Order: Lorenz → Damage → Tax
-        if use_jantzen_volpert:
-            damage_at_Fmin = y_gross * L_jantzen_volpert_derivative(Fmin, gini) * omega_yi[bin_idx] * (1.0 - uniform_tax_rate)
+        if use_empirical_lorenz:
+            damage_at_Fmin = y_gross * L_empirical_lorenz_derivative(Fmin, gini) * omega_yi[bin_idx] * (1.0 - uniform_tax_rate)
         else:
             damage_at_Fmin = y_gross * L_pareto_derivative(Fmin, gini) * omega_yi[bin_idx] * (1.0 - uniform_tax_rate)
 

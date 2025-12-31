@@ -35,7 +35,7 @@ def test_uniform_tax_targeted_redistribution_order_and_budget():
         redistribution_amount=redistribution_amount,
         uniform_tax_rate=uniform_tax_rate,
         Fi_edges=Fi_edges,
-        use_jantzen_volpert=False,
+        use_empirical_lorenz=False,
         initial_guess=None,
     )
     Fmin_no_tax = find_Fmin(
@@ -47,7 +47,7 @@ def test_uniform_tax_targeted_redistribution_order_and_budget():
         redistribution_amount=redistribution_amount,
         uniform_tax_rate=0.0,
         Fi_edges=Fi_edges,
-        use_jantzen_volpert=False,
+        use_empirical_lorenz=False,
         initial_guess=None,
     )
 
@@ -69,7 +69,7 @@ def test_uniform_tax_targeted_redistribution_order_and_budget():
         uniform_tax_rate=uniform_tax_rate,
         uniform_redistribution=0.0,
         gini=gini,
-        use_jantzen_volpert=False,
+        use_empirical_lorenz=False,
     )
     assert np.isclose(y_net, expected_y_net)
 
