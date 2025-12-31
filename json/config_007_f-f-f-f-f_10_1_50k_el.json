@@ -1,5 +1,5 @@
 {
-    "run_name": "config_007_f-f-f-f-f_10_1_50k_jv",
+    "run_name": "config_007_f-f-f-f-f_10_1_50k_el",
     "description": "Config 007: uniform damage, uniform tax, Empirical (f-f-f-f-f)",
     "scalar_parameters": {
         "alpha": 0.3,
@@ -41,7 +41,7 @@
         "income_dependent_redistribution_policy": false,
         "_income_dependent_redistribution_policy": "Subswitch of income_redistribution. If true, targeted to lowest income; if false, uniform dividend",
         "use_empirical_lorenz": true,
-        "_use_empirical_lorenz": "If true, use Empirical Lorenz formulation L(F) = F^p * (1 - (1-F)^q) where (p,q) are derived from Gini coefficient using symmetric case G0=G1=g; if false, use Pareto-Lorenz formulation (default)"
+        "_use_empirical_lorenz": "If true, use Empirical Lorenz formulation L(F) = (1 - G/Gini_base)·F + (G/Gini_base)·L_base(F) where L_base is the base empirical curve with fixed parameters; if false, use Pareto-Lorenz formulation (default)"
     },
     "time_functions": {
         "_description": "Time-dependent exogenous functions",

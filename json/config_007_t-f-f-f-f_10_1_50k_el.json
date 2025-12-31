@@ -1,6 +1,6 @@
 {
-    "run_name": "config_007_t-f-t-f-f_10_1_1000_jv",
-    "description": "Test configuration for Empirical Lorenz formulation with all income-dependent features enabled (t-f-t-t-t)",
+    "run_name": "config_007_t-f-f-f-f_10_1_50k_el",
+    "description": "Config 007: income-dependent damage, uniform tax, Empirical (t-f-f-f-f)",
     "scalar_parameters": {
         "alpha": 0.3,
         "_alpha": "Capital share of income",
@@ -34,14 +34,14 @@
         "_income_dependent_damage_distribution": "If true, damage weighted towards low-income (uses y_damage_distribution_exponent and y_net_reference)",
         "income_dependent_aggregate_damage": false,
         "_income_dependent_aggregate_damage": "Subswitch of income_dependent_damage_distribution: If false, aggregate damage is fixed and distribution adjusted to match; if true, aggregate damage decreases as world gets richer",
-        "income_dependent_tax_policy": true,
+        "income_dependent_tax_policy": false,
         "_income_dependent_tax_policy": "If true, progressive tax (tax richest); if false, uniform fractional tax",
         "income_redistribution": false,
         "_income_redistribution": "If true, enable redistribution; if false, no redistribution (all revenues to abatement)",
         "income_dependent_redistribution_policy": false,
         "_income_dependent_redistribution_policy": "Subswitch of income_redistribution. If true, targeted to lowest income; if false, uniform dividend",
         "use_empirical_lorenz": true,
-        "_use_empirical_lorenz": "If true, use Empirical Lorenz formulation L(F) = F^p * (1 - (1-F)^q) where (p,q) are derived from Gini coefficient using symmetric case G0=G1=g; if false, use Pareto-Lorenz formulation (default)"
+        "_use_empirical_lorenz": "If true, use Empirical Lorenz formulation L(F) = (1 - G/Gini_base)·F + (G/Gini_base)·L_base(F) where L_base is the base empirical curve with fixed parameters; if false, use Pareto-Lorenz formulation (default)"
     },
     "time_functions": {
         "_description": "Time-dependent exogenous functions",
@@ -115,7 +115,7 @@
         "_description": "ITERATIVE REFINEMENT MODE with scaled max_evaluations across iterations",
         "max_evaluations_initial": 320,
         "_max_evaluations_initial": "Maximum number of objective function evaluations for FIRST ITERATION (iteration 1)",
-        "max_evaluations_final": 1000,
+        "max_evaluations_final": 50000,
         "_max_evaluations_final": "Maximum number of objective function evaluations for FINAL ITERATION. Intermediate iterations scale using refinement_base = ((max_final - 1) / (max_initial - 1))^(1/(n_iterations - 1))",
         "max_evaluations_time_points": 320,
         "_max_evaluations_time_points": "Maximum number of objective function evaluations for time point adjustment optimization (when optimize_time_points = true)",

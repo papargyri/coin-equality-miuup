@@ -1,6 +1,6 @@
 {
-    "run_name": "config_007_t-f-f-f-f_10_1_1000_jv",
-    "description": "Config 007: income-dependent damage, uniform tax, Empirical (t-f-f-f-f)",
+    "run_name": "config_007_f-f-t-f-f_10_1_1000_el",
+    "description": "Config 007: uniform damage, progressive tax, Empirical (f-f-t-f-f)",
     "scalar_parameters": {
         "alpha": 0.3,
         "_alpha": "Capital share of income",
@@ -30,18 +30,18 @@
         "_y_net_reference": "Reference net income level ($) for income-dependent damage calculation. Typically set to current global average net income.",
         "y_damage_distribution_exponent": 0.5,
         "_y_damage_distribution_exponent": "Exponent for income-dependent damage distribution.",
-        "income_dependent_damage_distribution": true,
+        "income_dependent_damage_distribution": false,
         "_income_dependent_damage_distribution": "If true, damage weighted towards low-income (uses y_damage_distribution_exponent and y_net_reference)",
         "income_dependent_aggregate_damage": false,
         "_income_dependent_aggregate_damage": "Subswitch of income_dependent_damage_distribution: If false, aggregate damage is fixed and distribution adjusted to match; if true, aggregate damage decreases as world gets richer",
-        "income_dependent_tax_policy": false,
+        "income_dependent_tax_policy": true,
         "_income_dependent_tax_policy": "If true, progressive tax (tax richest); if false, uniform fractional tax",
         "income_redistribution": false,
         "_income_redistribution": "If true, enable redistribution; if false, no redistribution (all revenues to abatement)",
         "income_dependent_redistribution_policy": false,
         "_income_dependent_redistribution_policy": "Subswitch of income_redistribution. If true, targeted to lowest income; if false, uniform dividend",
         "use_empirical_lorenz": true,
-        "_use_empirical_lorenz": "If true, use Empirical Lorenz formulation L(F) = F^p * (1 - (1-F)^q) where (p,q) are derived from Gini coefficient using symmetric case G0=G1=g; if false, use Pareto-Lorenz formulation (default)"
+        "_use_empirical_lorenz": "If true, use Empirical Lorenz formulation L(F) = (1 - G/Gini_base)·F + (G/Gini_base)·L_base(F) where L_base is the base empirical curve with fixed parameters; if false, use Pareto-Lorenz formulation (default)"
     },
     "time_functions": {
         "_description": "Time-dependent exogenous functions",
