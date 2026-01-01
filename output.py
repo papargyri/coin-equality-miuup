@@ -51,7 +51,8 @@ VARIABLE_METADATA = {
     'Fmax': {'description': 'Maximum Income Rank Boundary', 'units': '', 'group': 'inequality'},
     'min_y_net': {'description': 'Net Income at Fmin', 'units': '$/person', 'group': 'inequality'},
     'max_y_net': {'description': 'Net Income at Fmax', 'units': '$/person', 'group': 'inequality'},
-    'tax_amount': {'description': 'Per-Capita Tax Amount', 'units': '$/person', 'group': 'policy'}
+    'tax_amount': {'description': 'Per-Capita Tax Amount', 'units': '$/person', 'group': 'policy'},
+    'r_consumption': {'description': 'Effective Discount Rate on Consumption', 'units': '', 'group': 'economic'}
 }
 
 # Variable grouping for organized layout with combined charts
@@ -62,7 +63,8 @@ VARIABLE_GROUPS = {
         {'type': 'single', 'variables': ['mu']},
         {'type': 'combined', 'title': 'Economic Impact Fractions', 'variables': ['Omega', 'Lambda'], 'units': 'fraction'},
         {'type': 'single', 'variables': ['Gini']},
-        {'type': 'single', 'variables': ['U']}
+        {'type': 'single', 'variables': ['U']},
+        {'type': 'single', 'variables': ['r_consumption']}
     ],
     'dollar_variables': [
         {'type': 'combined', 'title': 'GDP Components', 'variables': ['Y_gross', 'Y_damaged', 'Y_net'], 'units': '$'},
@@ -369,6 +371,7 @@ def write_results_csv(results, output_dir, run_name='', filename='results.csv'):
         'E',  # CO2 emissions
         'dK_dt',  # Net capital accumulation
         'marginal_abatement_cost',  # Marginal abatement cost (social cost of carbon)
+        'r_consumption',  # Effective discount rate on consumption
     ]
 
     # Add any remaining variables not in the ordered list
@@ -430,6 +433,7 @@ def write_results_csv(results, output_dir, run_name='', filename='results.csv'):
         'delta_gini_consumption': ('Change in Gini from input (consumption)', 'dimensionless'),
         'delta_gini_utility': ('Change in Gini from input (utility)', 'dimensionless'),
         'tax_amount': ('Per-capita tax amount (abatement + redistribution)', '$/person/yr'),
+        'r_consumption': ('Effective discount rate on consumption', 'dimensionless'),
     }
 
     # Create headers with format: "variable, description, (units)"

@@ -619,6 +619,7 @@ def create_results_comparison_xlsx(results_data, directories, output_path):
         ('redistribution', 'Per-Capita Redistribution'),
         ('Redistribution_amount', 'Total Redistribution'),
         ('marginal_abatement_cost', 'Marginal Abatement Cost'),
+        ('r_consumption', 'Effective Discount Rate on Consumption'),
         ('A', 'Total Factor Productivity'),
         ('L', 'Population'),
         ('sigma', 'Carbon Intensity of GDP'),

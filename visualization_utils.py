@@ -193,6 +193,7 @@ def create_results_report_pdf(case_data, output_pdf):
 
         # Abatement Economics
         ('marginal_abatement_cost', 'Marginal abatement cost ($/tCO2)', 'Marginal Abatement Cost'),
+        ('r_consumption', 'Effective discount rate', 'Effective Discount Rate on Consumption'),
 
         # Exogenous Drivers
         ('A', 'Total factor productivity ($)', 'Total Factor Productivity'),
@@ -570,6 +571,7 @@ def create_results_report_pdf_to_existing(case_data, pdf):
 
         # Abatement Economics
         ('marginal_abatement_cost', 'Marginal abatement cost ($/tCO2)', 'Marginal Abatement Cost'),
+        ('r_consumption', 'Effective discount rate', 'Effective Discount Rate on Consumption'),
 
         # Exogenous Drivers
         ('A', 'Total factor productivity ($)', 'Total Factor Productivity'),
