@@ -608,101 +608,39 @@ def calculate_tendencies(state, params, omega_yi_Omega_base_ratio_prev, Omega_Om
     results = {}
 
     if store_detailed_output:
-        # Additional calculated variables for detailed output only
-        marginal_abatement_cost = theta1 * mu ** (theta2 - 1)  # Social cost of carbon
-
-        # Calculate total (upper-case) variables from per capita variables for recording output
-        Y_gross = y_gross * L  # Total gross production
-        Y_damaged = y_damaged_calc * L  # Total damaged production
-        Y_net = y_net * L  # Total net production
-        AbateCost = abateCost_amount * L  # Total abatement cost
-        Lambda = lambda_abate  # Abatement cost fraction (same for total and per capita)
-        E = e * L  # Total emissions
-        Climate_damage = climate_damage_calc * L  # Total climate damage
-        Consumption = (1 - s) * Y_net  # Total consumption
-        consumption = (1 - s) * y_net  # Per capita consumption
-        Savings = s * Y_net  # Total savings
-        savings = s * y_net  # Per capita savings
-        redistribution = redistribution_amount  # Per capita redistribution (same as redistribution_amount)
-        Redistribution_amount = redistribution_amount * L  # Total redistribution amount
-
-        # Calculate Gini coefficients from vector distributions
-        if y_gross > EPSILON:
-            # Calculate consumption_yi from y_net_yi for Gini calculation
-            consumption_yi_full = y_net_yi * (1 - s)
-
-            gini_consumption = gini_from_distribution(consumption_yi_full, Fi_edges, Fwi)
-
-            delta_gini_consumption = gini_consumption - gini
-
-            # Compute utility_yi from consumption_yi
-            if eta == 1:
-                utility_yi_full = np.log(np.maximum(consumption_yi_full, EPSILON))
-            else:
-                utility_yi_full = (np.maximum(consumption_yi_full, EPSILON) ** (1 - eta)) / (1 - eta)
-
-            # Calculate utility Gini only when eta < 1
-            if eta < 1:
-                gini_utility = gini_from_distribution(utility_yi_full, Fi_edges, Fwi)
-                delta_gini_utility = gini_utility - gini
-            else:
-                gini_utility = 0.0
-                delta_gini_utility = 0.0
-        else:
-            gini_consumption = 0.0
-            delta_gini_consumption = 0.0
-            gini_utility = 0.0
-            delta_gini_utility = 0.0
-
-        # Return full diagnostics for CSV/PDF output
+        # Store primary per-capita variables
         results.update({
-            'dK_dt': dK_dt,
-            'dEcum_dt': E,
-            'Gini': gini,  # Current Gini for plotting
-            'gini': gini,  # Background Gini for reference
-            'Y_gross': Y_gross,
+            'y_gross': y_gross,
+            'y_damaged': y_damaged_calc,
+            'climate_damage': climate_damage_calc,
+            'y_net': y_net,
+            'e': e,
+            'mu': mu,
+            'lambda_abate': lambda_abate,
+            'abateCost_amount': abateCost_amount,
+            'redistribution_amount': redistribution_amount,
+            'tax_amount': tax_amount,
+            'uniform_redistribution_amount': uniform_redistribution_amount,
+            'uniform_tax_rate': uniform_tax_rate,
+            'Fmin': Fmin,
+            'Fmax': Fmax,
+            'min_y_net': min_y_net,
+            'max_y_net': max_y_net,
+            'aggregate_utility': aggregate_utility,
+            'Gini': gini,
+            'gini': gini,
             'delta_T': delta_T,
             'Omega': Omega,
-            'Omega_base': Omega_base,  # Base damage from temperature before income adjustment
-            'Omega_calc': Omega_calc,  # Damage from previous timestep (lagged)
-            'Y_damaged': Y_damaged,
-            'Y_net': Y_net,
-            'y_net': y_net,
-            'y_damaged': y_damaged_calc,  # Per capita gross production after climate damage
-            'climate_damage': climate_damage_calc,  # Per capita climate damage
-            'redistribution': redistribution,
-            'redistribution_amount': redistribution_amount,  # Per capita redistribution amount
-            'Redistribution_amount': Redistribution_amount,  # Total redistribution amount
-            'uniform_redistribution_amount': uniform_redistribution_amount,  # Per capita uniform redistribution
-            'tax_amount': tax_amount,  # Per capita tax amount (abatement + redistribution)
-            'uniform_tax_rate': uniform_tax_rate,  # Uniform tax rate
-            'Fmin': Fmin,  # Minimum income rank boundary
-            'Fmax': Fmax,  # Maximum income rank boundary
-            'min_y_net': min_y_net,  # Net income at Fmin
-            'max_y_net': max_y_net,  # Net income at Fmax
-            'aggregate_utility': aggregate_utility,  # Aggregate utility from integration
-            'mu': mu,
-            'Lambda': Lambda,
-            'AbateCost': AbateCost,
-            'marginal_abatement_cost': marginal_abatement_cost,
-            'U': U,
-            'E': E,
-            'Climate_damage': Climate_damage,
-            'Savings': Savings,
-            'savings': savings,
-            'Consumption': Consumption,
-            'consumption': consumption,
-            's': s,  # Savings rate (currently constant, may become time-dependent)
-            'gini_consumption': gini_consumption,  # Gini coefficient of consumption distribution
-            'gini_utility': gini_utility,  # Gini coefficient of utility distribution (0 when eta >= 1)
-            'delta_gini_consumption': delta_gini_consumption,  # Change in Gini from input (consumption)
-            'delta_gini_utility': delta_gini_utility,  # Change in Gini from input (utility, 0 when eta >= 1)
-            'y_net_yi': y_net_yi,  # Per capita net income distribution across quadrature points
-            'omega_yi': omega_yi,  # Climate damage fractions (dimensionless) at quadrature points
-            'utility_yi': utility_yi,  # Utility distribution across quadrature points
+            'Omega_base': Omega_base,
+            'Omega_calc': Omega_calc,
+            'y_net_yi': y_net_yi,
+            'omega_yi': omega_yi,
+            'utility_yi': utility_yi,
+            's': s,
+            'dK_dt': dK_dt,
         })
 
-    # Return minimal variables needed for optimization
+    # Always return minimal variables needed for optimization
     results.update({
         'U': U,
         'dK_dt': dK_dt,
@@ -804,26 +742,24 @@ def integrate_model(config, store_detailed_output=True):
     results = {}
 
     if store_detailed_output:
-        # Add storage for all diagnostic variables
+        # Store params for create_derived_variables()
+        results['params_list'] = []
+        # Add storage for primary variables
         results.update({
             'A': np.zeros(n_steps),
             'sigma': np.zeros(n_steps),
             'theta1': np.zeros(n_steps),
             'f': np.zeros(n_steps),
-            'Y_gross': np.zeros(n_steps),
+            'y_gross': np.zeros(n_steps),
             'delta_T': np.zeros(n_steps),
             'Omega': np.zeros(n_steps),
             'Omega_base': np.zeros(n_steps),
             'Omega_calc': np.zeros(n_steps),
-            'Gini': np.zeros(n_steps),  # Total Gini (background + perturbation)
-            'gini': np.zeros(n_steps),  # Background Gini
-            'Y_damaged': np.zeros(n_steps),
-            'Y_net': np.zeros(n_steps),
+            'Gini': np.zeros(n_steps),
+            'gini': np.zeros(n_steps),
             'y_damaged': np.zeros(n_steps),
             'climate_damage': np.zeros(n_steps),
-            'redistribution': np.zeros(n_steps),
             'redistribution_amount': np.zeros(n_steps),
-            'Redistribution_amount': np.zeros(n_steps),
             'uniform_redistribution_amount': np.zeros(n_steps),
             'tax_amount': np.zeros(n_steps),
             'uniform_tax_rate': np.zeros(n_steps),
@@ -831,28 +767,17 @@ def integrate_model(config, store_detailed_output=True):
             'Fmax': np.zeros(n_steps),
             'aggregate_utility': np.zeros(n_steps),
             'mu': np.zeros(n_steps),
-            'Lambda': np.zeros(n_steps),
-            'AbateCost': np.zeros(n_steps),
-            'marginal_abatement_cost': np.zeros(n_steps),
+            'lambda_abate': np.zeros(n_steps),
+            'abateCost_amount': np.zeros(n_steps),
             'y_net': np.zeros(n_steps),
-            'E': np.zeros(n_steps),
+            'e': np.zeros(n_steps),
             'dK_dt': np.zeros(n_steps),
-            'dEcum_dt': np.zeros(n_steps),
-            'Climate_damage': np.zeros(n_steps),
-            'Savings': np.zeros(n_steps),
-            'savings': np.zeros(n_steps),
-            'Consumption': np.zeros(n_steps),
-            'consumption': np.zeros(n_steps),
             's': np.zeros(n_steps),
-            'gini_consumption': np.zeros(n_steps),
-            'gini_utility': np.zeros(n_steps),
-            'delta_gini_consumption': np.zeros(n_steps),
-            'delta_gini_utility': np.zeros(n_steps),
             'min_y_net': np.zeros(n_steps),
             'max_y_net': np.zeros(n_steps),
-            'y_net_yi': np.zeros((n_steps, n_quad)),  # Per capita net income distribution
-            'omega_yi': np.zeros((n_steps, n_quad)),  # Climate damage fractions (dimensionless) at quadrature points
-            'utility_yi': np.zeros((n_steps, n_quad)),  # Utility distribution
+            'y_net_yi': np.zeros((n_steps, n_quad)),
+            'omega_yi': np.zeros((n_steps, n_quad)),
+            'utility_yi': np.zeros((n_steps, n_quad)),
         })
 
     # Always store time, state variables, and objective function variables
@@ -880,6 +805,9 @@ def integrate_model(config, store_detailed_output=True):
         # Evaluate time-dependent parameters at current time
         params = evaluate_params_at_time(t, config)
 
+        if store_detailed_output:
+            results['params_list'].append(params)
+
         # Calculate all variables and tendencies at current time
         # Pass damage ratios from previous timestep to use lagged damage (avoids circular dependency)
         # Pass Fmax_prev and Fmin_prev to speed up root finding
@@ -900,50 +828,47 @@ def integrate_model(config, store_detailed_output=True):
             results['theta1'][i] = params['theta1']
             results['f'][i] = params['f']
 
-            # Store all derived variables
-            results['Y_gross'][i] = outputs['Y_gross']
+            # Store primary per-capita variables
+            results['y_gross'][i] = outputs['y_gross']
+            results['y_damaged'][i] = outputs['y_damaged']
+            results['climate_damage'][i] = outputs['climate_damage']
+            results['y_net'][i] = outputs['y_net']
+            results['e'][i] = outputs['e']
+            results['mu'][i] = outputs['mu']
+            results['lambda_abate'][i] = outputs['lambda_abate']
+            results['abateCost_amount'][i] = outputs['abateCost_amount']
+
+            # Store redistribution/tax variables
+            results['redistribution_amount'][i] = outputs['redistribution_amount']
+            results['tax_amount'][i] = outputs['tax_amount']
+            results['uniform_redistribution_amount'][i] = outputs['uniform_redistribution_amount']
+            results['uniform_tax_rate'][i] = outputs['uniform_tax_rate']
+
+            # Store climate variables
             results['delta_T'][i] = outputs['delta_T']
             results['Omega'][i] = outputs['Omega']
             results['Omega_base'][i] = outputs['Omega_base']
             results['Omega_calc'][i] = outputs['Omega_calc']
-            results['Gini'][i] = outputs['Gini']  # Total Gini
-            results['gini'][i] = outputs['gini']  # Background Gini
-            results['Y_damaged'][i] = outputs['Y_damaged']
-            results['Y_net'][i] = outputs['Y_net']
-            results['y_damaged'][i] = outputs['y_damaged']
-            results['climate_damage'][i] = outputs['climate_damage']
-            results['redistribution'][i] = outputs['redistribution']
-            results['redistribution_amount'][i] = outputs['redistribution_amount']
-            results['Redistribution_amount'][i] = outputs['Redistribution_amount']
-            results['uniform_redistribution_amount'][i] = outputs['uniform_redistribution_amount']
-            results['tax_amount'][i] = outputs['tax_amount']
-            results['uniform_tax_rate'][i] = outputs['uniform_tax_rate']
+
+            # Store policy boundaries
             results['Fmin'][i] = outputs['Fmin']
             results['Fmax'][i] = outputs['Fmax']
-            results['aggregate_utility'][i] = outputs['aggregate_utility']
-            results['mu'][i] = outputs['mu']
-            results['Lambda'][i] = outputs['Lambda']
-            results['AbateCost'][i] = outputs['AbateCost']
-            results['marginal_abatement_cost'][i] = outputs['marginal_abatement_cost']
-            results['y_net'][i] = outputs['y_net']
-            results['E'][i] = outputs['E']
-            results['dK_dt'][i] = outputs['dK_dt']
-            results['dEcum_dt'][i] = outputs['dEcum_dt']
-            results['Climate_damage'][i] = outputs['Climate_damage']
-            results['Savings'][i] = outputs['Savings']
-            results['savings'][i] = outputs['savings']
-            results['Consumption'][i] = outputs['Consumption']
-            results['consumption'][i] = outputs['consumption']
-            results['s'][i] = outputs['s']
-            results['gini_consumption'][i] = outputs['gini_consumption']
-            results['gini_utility'][i] = outputs['gini_utility']
-            results['delta_gini_consumption'][i] = outputs['delta_gini_consumption']
-            results['delta_gini_utility'][i] = outputs['delta_gini_utility']
             results['min_y_net'][i] = outputs['min_y_net']
             results['max_y_net'][i] = outputs['max_y_net']
+
+            # Store scalars
+            results['Gini'][i] = outputs['Gini']
+            results['gini'][i] = outputs['gini']
+            results['aggregate_utility'][i] = outputs['aggregate_utility']
+            results['s'][i] = outputs['s']
+
+            # Store distributions
             results['y_net_yi'][i, :] = outputs['y_net_yi']
             results['omega_yi'][i, :] = outputs['omega_yi']
             results['utility_yi'][i, :] = outputs['utility_yi']
+
+            # Store tendencies
+            results['dK_dt'][i] = outputs['dK_dt']
 
         # Euler step: update state for next iteration (skip on last step)
         if i < n_steps - 1:
@@ -961,5 +886,177 @@ def integrate_model(config, store_detailed_output=True):
 
     # Print final timing statistics only when called directly (not during optimization)
     # print_timing_stats()
+
+    return results
+
+
+def create_derived_variables(results):
+    """
+    Create all derived variables from integration results.
+
+    Computes total (uppercase) variables from per-capita (lowercase) variables,
+    consumption/savings variables, marginal costs, and Gini coefficients.
+
+    Parameters
+    ----------
+    results : dict
+        Results dictionary from integrate_model() containing:
+        - Time series of primary per-capita variables (y_gross, y_net, e, mu, etc.)
+        - params_list: list of parameter dicts at each timestep
+        - L: population array
+        - All distribution arrays (y_net_yi, omega_yi, utility_yi)
+
+    Returns
+    -------
+    dict
+        Updated results dictionary with derived variables added:
+        - Total variables: Y_gross, Y_net, Y_damaged, E, AbateCost, Climate_damage
+        - Consumption/savings: Consumption, consumption, Savings, savings
+        - Other: marginal_abatement_cost, Lambda, redistribution, Redistribution_amount
+        - Gini: gini_consumption, gini_utility, delta_gini_consumption, delta_gini_utility
+        - Discount rate: r_consumption (annual effective discount rate on consumption)
+
+    Notes
+    -----
+    All operations are vectorized over numpy arrays for efficiency.
+    Modifies results dict in-place and returns it.
+    """
+    # Extract parameter arrays from params_list
+    params_list = results['params_list']
+    n_steps = len(results['t'])
+
+    s_array = np.array([p['s'] for p in params_list])
+    theta1_array = np.array([p['theta1'] for p in params_list])
+    theta2_array = np.array([p['theta2'] for p in params_list])
+    eta_array = np.array([p['eta'] for p in params_list])
+    gini_array = np.array([p['gini'] for p in params_list])
+    rho = params_list[0]['rho']
+
+    # Extract primary arrays
+    L = results['L']
+    y_gross = results['y_gross']
+    y_damaged = results['y_damaged']
+    climate_damage = results['climate_damage']
+    y_net = results['y_net']
+    e = results['e']
+    mu = results['mu']
+    lambda_abate = results['lambda_abate']
+    abateCost_amount = results['abateCost_amount']
+    redistribution_amount = results['redistribution_amount']
+
+    # Compute total (uppercase) variables from per-capita via vectorized multiplication
+    Y_gross = y_gross * L
+    Y_damaged = y_damaged * L
+    Y_net = y_net * L
+    AbateCost = abateCost_amount * L
+    E = e * L
+    Climate_damage = climate_damage * L
+    Redistribution_amount = redistribution_amount * L
+
+    # Compute consumption and savings variables
+    Consumption = (1.0 - s_array) * Y_net
+    consumption = (1.0 - s_array) * y_net
+    Savings = s_array * Y_net
+    savings = s_array * y_net
+
+    # Compute marginal abatement cost
+    marginal_abatement_cost = theta1_array * (mu ** (theta2_array - 1.0))
+
+    # Create aliases
+    Lambda = lambda_abate
+    redistribution = redistribution_amount
+
+    # Add dEcum_dt as alias to E for consistency
+    dEcum_dt = E
+
+    # Compute Gini coefficients from distributions (requires loop over timesteps)
+    gini_consumption = np.zeros(n_steps)
+    gini_utility = np.zeros(n_steps)
+    delta_gini_consumption = np.zeros(n_steps)
+    delta_gini_utility = np.zeros(n_steps)
+
+    # Extract distribution info from results
+    y_net_yi = results['y_net_yi']
+    Fi_edges = results['Fi_edges']
+    Fwi = results['Fwi']
+
+    for i in range(n_steps):
+        s_i = s_array[i]
+        eta_i = eta_array[i]
+        gini_i = gini_array[i]
+        y_net_yi_i = y_net_yi[i, :]
+
+        # Calculate consumption_yi from y_net_yi
+        consumption_yi_i = y_net_yi_i * (1.0 - s_i)
+
+        # Calculate Gini coefficient for consumption
+        if y_gross[i] > EPSILON:
+            gini_consumption[i] = gini_from_distribution(consumption_yi_i, Fi_edges, Fwi)
+            delta_gini_consumption[i] = gini_consumption[i] - gini_i
+
+            # Calculate utility Gini only when eta < 1
+            if eta_i < 1.0:
+                if eta_i == 1.0:
+                    utility_yi_i = np.log(np.maximum(consumption_yi_i, EPSILON))
+                else:
+                    utility_yi_i = (np.maximum(consumption_yi_i, EPSILON) ** (1.0 - eta_i)) / (1.0 - eta_i)
+
+                gini_utility[i] = gini_from_distribution(utility_yi_i, Fi_edges, Fwi)
+                delta_gini_utility[i] = gini_utility[i] - gini_i
+            else:
+                gini_utility[i] = 0.0
+                delta_gini_utility[i] = 0.0
+        else:
+            gini_consumption[i] = 0.0
+            delta_gini_consumption[i] = 0.0
+            gini_utility[i] = 0.0
+            delta_gini_utility[i] = 0.0
+
+    # Compute annual effective discount rate on consumption
+    # r_consumption(t) = exp(rho * dt) * (consumption(t+dt)/consumption(t))^eta - 1.0
+    t_array = results['t']
+    dt = t_array[1] - t_array[0] if n_steps > 1 else 1.0
+    r_consumption = np.zeros(n_steps)
+
+    for i in range(n_steps - 1):
+        if consumption[i] > EPSILON:
+            consumption_ratio = consumption[i + 1] / consumption[i]
+            r_consumption[i] = np.exp(rho * dt) * (consumption_ratio ** eta_array[i]) - 1.0
+        else:
+            r_consumption[i] = 0.0
+
+    # For the last time step, use the consumption ratio from the previous time step
+    if n_steps > 1:
+        if consumption[-2] > EPSILON:
+            consumption_ratio_last = consumption[-1] / consumption[-2]
+            r_consumption[-1] = np.exp(rho * dt) * (consumption_ratio_last ** eta_array[-1]) - 1.0
+        else:
+            r_consumption[-1] = 0.0
+    else:
+        r_consumption[0] = 0.0
+
+    # Add all derived variables to results dict
+    results.update({
+        'Y_gross': Y_gross,
+        'Y_damaged': Y_damaged,
+        'Y_net': Y_net,
+        'AbateCost': AbateCost,
+        'E': E,
+        'Climate_damage': Climate_damage,
+        'Redistribution_amount': Redistribution_amount,
+        'Consumption': Consumption,
+        'consumption': consumption,
+        'Savings': Savings,
+        'savings': savings,
+        'marginal_abatement_cost': marginal_abatement_cost,
+        'Lambda': Lambda,
+        'redistribution': redistribution,
+        'dEcum_dt': dEcum_dt,
+        'gini_consumption': gini_consumption,
+        'gini_utility': gini_utility,
+        'delta_gini_consumption': delta_gini_consumption,
+        'delta_gini_utility': delta_gini_utility,
+        'r_consumption': r_consumption,
+    })
 
     return results

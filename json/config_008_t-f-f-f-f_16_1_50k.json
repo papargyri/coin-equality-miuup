@@ -20,7 +20,7 @@
         "_fract_gdp": "Fraction of GDP available for redistribution and abatement",
         "theta2": 2.6,
         "_theta2": "Abatement cost exponent",
-        "mu_max": 1.2,
+        "mu_max": 1e+20,
         "_mu_max": "Maximum allowed abatement fraction (cap on \u03bc). Values >1 allow carbon removal.",
         "Ecum_initial": 2193031000000.0,
         "_Ecum_initial": "Initial cumulative CO2 emissions (tCO2). Set to 0 for no prior emissions. 1.24715/k_climate to match 2020 Barrage & Nordhaus 2023.",
@@ -41,7 +41,7 @@
         "income_dependent_redistribution_policy": false,
         "_income_dependent_redistribution_policy": "Subswitch of income_redistribution. If true, targeted to lowest income; if false, uniform dividend",
         "use_empirical_lorenz": false,
-        "_use_empirical_lorenz": "If true, use Empirical Lorenz formulation L(F) = (1 - G/Gini_base)·F + (G/Gini_base)·L_base(F) where L_base is the base empirical curve with fixed parameters; if false, use Pareto-Lorenz formulation (default)"
+        "_use_empirical_lorenz": "If true, use Empirical Lorenz formulation L(F) = (1 - G/Gini_base)\u00b7F + (G/Gini_base)\u00b7L_base(F) where L_base is the base empirical curve with fixed parameters; if false, use Pareto-Lorenz formulation (default)"
     },
     "time_functions": {
         "_description": "Time-dependent exogenous functions",
@@ -121,7 +121,7 @@
         "_max_evaluations_time_points": "Maximum number of objective function evaluations for time point adjustment optimization (when optimize_time_points = true)",
         "optimization_iterations": 2,
         "_optimization_iterations": "INTEGER: Number of refinement iterations. With 3 iterations and initial=5000, final=30000: iter1=5000, iter2=12247, iter3=30000",
-        "optimize_time_points": true,
+        "optimize_time_points": false,
         "_optimize_time_points": "If true, run an additional optimization at the end to adjust time placement of control points (uses max_evaluations_time_points)",
         "chebyshev_scaling_power": 1.5,
         "_chebyshev_scaling_power": "Power for Chebyshev node transformation (>1 concentrates points near start, <1 near end, =1 standard). Default 1.5 concentrates points in early years.",
@@ -155,5 +155,5 @@
         "_xtol_abs": "Absolute tolerance on control parameters (f,s values): stops when all |\u0394f|,|\u0394s| < 1e-6. Appropriate since f,s \u2208 [0,1]."
     },
     "optimization_iterations": 2,
-    "optimize_time_points": true
+    "optimize_time_points": false
 }

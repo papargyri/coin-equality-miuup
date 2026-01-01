@@ -23,7 +23,7 @@ from io import StringIO
 from matplotlib.backends.backend_pdf import PdfPages
 from parameters import load_configuration, ModelConfiguration
 from optimization import UtilityOptimizer, create_control_function_from_points
-from economic_model import integrate_model
+from economic_model import integrate_model, create_derived_variables
 from output import save_results, write_optimization_summary, copy_config_file, create_output_directory
 from visualization_utils import create_results_report_pdf
 
@@ -271,6 +271,7 @@ def compare_scenarios(config, f_values, labels):
         )
 
         results = integrate_model(scenario_config)
+        results = create_derived_variables(results)
 
         rho = config.scalar_params.rho
         t = results['t']
@@ -591,6 +592,7 @@ def main():
 
     print("Running forward model with optimal control...")
     optimal_results = integrate_model(optimal_config)
+    optimal_results = create_derived_variables(optimal_results)
 
     print("\nSaving integration results (CSV and PDF)...")
     plot_short_horizon = config.integration_params.plot_short_horizon

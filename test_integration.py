@@ -13,7 +13,7 @@ Arguments:
 import sys
 import os
 from parameters import load_configuration
-from economic_model import integrate_model
+from economic_model import integrate_model, create_derived_variables
 from output import save_results
 
 def main():
@@ -47,6 +47,7 @@ def main():
     # Run integration
     print(f'\nRunning integration...')
     results = integrate_model(config)
+    results = create_derived_variables(results)
 
     # Display results
     print(f'Integration complete!')
