@@ -259,10 +259,10 @@ def create_results_report_pdf(case_data, output_pdf):
                 all_data = []
                 for df in case_data.values():
                     if var_name in df.columns:
-                        # Use first 90% of time points to avoid late-time outliers
+                        # Use first 90% of time points to avoid late-time outliers (skip first time step)
                         n_points = len(df)
                         n_points_for_ylim = int(0.9 * n_points)
-                        all_data.extend(df[var_name].values[:n_points_for_ylim])
+                        all_data.extend(df[var_name].values[1:n_points_for_ylim])
 
                 if not all_data:
                     continue
@@ -635,10 +635,10 @@ def create_results_report_pdf_to_existing(case_data, pdf):
             all_data = []
             for df in case_data.values():
                 if var_name in df.columns:
-                    # Use first 90% of time points to avoid late-time outliers
+                    # Use first 90% of time points to avoid late-time outliers (skip first time step)
                     n_points = len(df)
                     n_points_for_ylim = int(0.9 * n_points)
-                    all_data.extend(df[var_name].values[:n_points_for_ylim])
+                    all_data.extend(df[var_name].values[1:n_points_for_ylim])
 
             if not all_data:
                 continue

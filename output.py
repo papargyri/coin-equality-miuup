@@ -770,13 +770,13 @@ def _create_plot_page_new(t, results, chart_specs, group_name, run_name, pdf, pa
         if not any(var in log_scale_vars for var in var_list):
             # Determine which time indices to use for calculating y-axis limits
             if use_first_90_percent_for_ylim:
-                # Use first 90% of time points for y-axis scaling
+                # Use first 90% of time points for y-axis scaling (excluding first time step)
                 n_points = len(t)
                 n_points_for_ylim = int(0.9 * n_points)
-                all_data = np.concatenate([results[var][:n_points_for_ylim] for var in var_list])
+                all_data = np.concatenate([results[var][1:n_points_for_ylim] for var in var_list])
             else:
-                # Use all data points
-                all_data = np.concatenate([results[var] for var in var_list])
+                # Use all data points (excluding first time step)
+                all_data = np.concatenate([results[var][1:] for var in var_list])
 
             data_min = np.min(all_data)
             data_max = np.max(all_data)
