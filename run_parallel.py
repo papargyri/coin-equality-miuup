@@ -209,6 +209,7 @@ def main():
     print("  - Monitor job progress:  tail -f data/output/<run_name>_*/terminal_output.txt")
     print("\nControl:")
     print("  - Kill specific job:     kill <PID>")
+    print("  - Kill range of PIDs:    kill $(seq 1200 1300)")
     print("  - Kill ALL these jobs:   pkill -f run_optimization.py")
 
 

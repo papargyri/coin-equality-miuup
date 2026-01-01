@@ -20,9 +20,11 @@ from constants import (
     EMPIRICAL_LORENZ_P1,
     EMPIRICAL_LORENZ_P2,
     EMPIRICAL_LORENZ_P3,
+    EMPIRICAL_LORENZ_W0,
     EMPIRICAL_LORENZ_W1,
     EMPIRICAL_LORENZ_W2,
     EMPIRICAL_LORENZ_W3,
+    EMPIRICAL_LORENZ_BASE_GINI,
 )
 
 
@@ -64,22 +66,44 @@ def L_pareto_derivative(F, G):
     return result[()] if scalar_input else result
 
 
-def compute_empirical_lorenz_base_gini():
+def L_pareto_and_derivative(F, G):
     """
-    Compute the base Gini coefficient for the empirical Lorenz curve.
+    Compute both Lorenz curve L(F) and its derivative dL/dF(F) for Pareto-Lorenz distribution.
+
+    This is more efficient than calling L_pareto and L_pareto_derivative separately,
+    as it avoids redundant computation of a_from_G(G) and (1-F) terms.
+
+    Parameters
+    ----------
+    F : float or array-like
+        Population rank(s) in [0,1]
+    G : float
+        Gini coefficient
 
     Returns
     -------
-    float
-        Base Gini coefficient: Gini_base = 1 - 2·[w₀/(p₀+1) + w₁/(p₁+1) + w₂/(p₂+1) + w₃/(p₃+1)]
-        where w₀ = 1 - w₁ - w₂ - w₃
+    tuple of (float or ndarray, float or ndarray)
+        (L, dL_dF) - Lorenz curve value and its derivative at F
     """
-    w0 = 1.0 - EMPIRICAL_LORENZ_W1 - EMPIRICAL_LORENZ_W2 - EMPIRICAL_LORENZ_W3
-    sum_term = (w0 / (EMPIRICAL_LORENZ_P0 + 1.0) +
-                EMPIRICAL_LORENZ_W1 / (EMPIRICAL_LORENZ_P1 + 1.0) +
-                EMPIRICAL_LORENZ_W2 / (EMPIRICAL_LORENZ_P2 + 1.0) +
-                EMPIRICAL_LORENZ_W3 / (EMPIRICAL_LORENZ_P3 + 1.0))
-    return 1.0 - 2.0 * sum_term
+    a = a_from_G(G)
+    F_arr = np.asarray(F)
+    scalar_input = np.ndim(F) == 0
+
+    # Clip F for L computation
+    F_clipped_L = np.clip(F_arr, 0.0, 1.0 - EPSILON)
+    one_minus_F_L = 1.0 - F_clipped_L
+    exponent = 1.0 - 1.0/a
+    L_result = 1.0 - one_minus_F_L**exponent
+
+    # Clip F for dL/dF computation
+    F_clipped_dL = np.clip(F_arr, EPSILON, 1.0 - EPSILON)
+    one_minus_F_dL = 1.0 - F_clipped_dL
+    dL_result = exponent * one_minus_F_dL**(-1.0/a)
+
+    if scalar_input:
+        return L_result[()], dL_result[()]
+    else:
+        return L_result, dL_result
 
 
 def L_empirical_lorenz_base(F):
@@ -97,11 +121,10 @@ def L_empirical_lorenz_base(F):
         Base Lorenz curve value: L_base(F) = w₀·F^p₀ + w₁·F^p₁ + w₂·F^p₂ + w₃·F^p₃
         where w₀ = 1 - w₁ - w₂ - w₃
     """
-    w0 = 1.0 - EMPIRICAL_LORENZ_W1 - EMPIRICAL_LORENZ_W2 - EMPIRICAL_LORENZ_W3
     F_arr = np.asarray(F)
     scalar_input = np.ndim(F) == 0
     F_clipped = np.clip(F_arr, 0.0, 1.0)
-    result = (w0 * (F_clipped ** EMPIRICAL_LORENZ_P0) +
+    result = (EMPIRICAL_LORENZ_W0 * (F_clipped ** EMPIRICAL_LORENZ_P0) +
               EMPIRICAL_LORENZ_W1 * (F_clipped ** EMPIRICAL_LORENZ_P1) +
               EMPIRICAL_LORENZ_W2 * (F_clipped ** EMPIRICAL_LORENZ_P2) +
               EMPIRICAL_LORENZ_W3 * (F_clipped ** EMPIRICAL_LORENZ_P3))
@@ -123,11 +146,10 @@ def L_empirical_lorenz_base_derivative(F):
         Derivative: dL_base/dF = w₀·p₀·F^(p₀-1) + w₁·p₁·F^(p₁-1) + w₂·p₂·F^(p₂-1) + w₃·p₃·F^(p₃-1)
         where w₀ = 1 - w₁ - w₂ - w₃
     """
-    w0 = 1.0 - EMPIRICAL_LORENZ_W1 - EMPIRICAL_LORENZ_W2 - EMPIRICAL_LORENZ_W3
     F_arr = np.asarray(F)
     scalar_input = np.ndim(F) == 0
     F_clipped = np.clip(F_arr, EPSILON, 1.0)
-    result = (w0 * EMPIRICAL_LORENZ_P0 * (F_clipped ** (EMPIRICAL_LORENZ_P0 - 1.0)) +
+    result = (EMPIRICAL_LORENZ_W0 * EMPIRICAL_LORENZ_P0 * (F_clipped ** (EMPIRICAL_LORENZ_P0 - 1.0)) +
               EMPIRICAL_LORENZ_W1 * EMPIRICAL_LORENZ_P1 * (F_clipped ** (EMPIRICAL_LORENZ_P1 - 1.0)) +
               EMPIRICAL_LORENZ_W2 * EMPIRICAL_LORENZ_P2 * (F_clipped ** (EMPIRICAL_LORENZ_P2 - 1.0)) +
               EMPIRICAL_LORENZ_W3 * EMPIRICAL_LORENZ_P3 * (F_clipped ** (EMPIRICAL_LORENZ_P3 - 1.0)))
@@ -154,8 +176,7 @@ def L_empirical_lorenz(F, G):
     -----
     Uses linear interpolation between perfect equality (L=F) and the base empirical curve.
     """
-    Gini_base = compute_empirical_lorenz_base_gini()
-    alpha = G / Gini_base
+    alpha = G / EMPIRICAL_LORENZ_BASE_GINI
     F_arr = np.asarray(F)
     scalar_input = np.ndim(F) == 0
     L_base = L_empirical_lorenz_base(F_arr)
@@ -183,13 +204,49 @@ def L_empirical_lorenz_derivative(F, G):
     -----
     Derivative of the linear interpolation between perfect equality and the base curve.
     """
-    Gini_base = compute_empirical_lorenz_base_gini()
-    alpha = G / Gini_base
+    alpha = G / EMPIRICAL_LORENZ_BASE_GINI
     F_arr = np.asarray(F)
     scalar_input = np.ndim(F) == 0
     dL_base_dF = L_empirical_lorenz_base_derivative(F_arr)
     result = (1.0 - alpha) + alpha * dL_base_dF
     return result[()] if scalar_input else result
+
+
+def L_empirical_lorenz_and_derivative(F, G):
+    """
+    Compute both empirical Lorenz curve L(F) and its derivative dL/dF(F).
+
+    This is more efficient than calling L_empirical_lorenz and L_empirical_lorenz_derivative
+    separately, as it avoids redundant computation of alpha and F array processing.
+
+    Parameters
+    ----------
+    F : float or array-like
+        Population rank(s) in [0,1]
+    G : float
+        Gini coefficient
+
+    Returns
+    -------
+    tuple of (float or ndarray, float or ndarray)
+        (L, dL_dF) - Lorenz curve value and its derivative at F
+    """
+    alpha = G / EMPIRICAL_LORENZ_BASE_GINI
+    F_arr = np.asarray(F)
+    scalar_input = np.ndim(F) == 0
+
+    # Compute base Lorenz curve and its derivative together
+    L_base = L_empirical_lorenz_base(F_arr)
+    dL_base_dF = L_empirical_lorenz_base_derivative(F_arr)
+
+    # Apply linear interpolation to both
+    L_result = (1.0 - alpha) * F_arr + alpha * L_base
+    dL_result = (1.0 - alpha) + alpha * dL_base_dF
+
+    if scalar_input:
+        return L_result[()], dL_result[()]
+    else:
+        return L_result, dL_result
 
 
 def _phi(r):
@@ -373,17 +430,13 @@ def find_Fmax(
     total_damage_integral = damage_cumulative[-1]
 
     def tax_revenue_minus_target(Fmax):
-        # Lorenz contribution
+        # Lorenz contribution (use combined function to avoid redundant computation)
         if use_empirical_lorenz:
-            lorenz_part = y_gross * (
-                (1.0 - L_empirical_lorenz(Fmax, gini)) -
-                (1.0 - Fmax) * L_empirical_lorenz_derivative(Fmax, gini)
-            )
+            L_Fmax, dL_Fmax = L_empirical_lorenz_and_derivative(Fmax, gini)
+            lorenz_part = y_gross * ((1.0 - L_Fmax) - (1.0 - Fmax) * dL_Fmax)
         else:
-            lorenz_part = y_gross * (
-                (1.0 - L_pareto(Fmax, gini)) -
-                (1.0 - Fmax) * L_pareto_derivative(Fmax, gini)
-            )
+            L_Fmax, dL_Fmax = L_pareto_and_derivative(Fmax, gini)
+            lorenz_part = y_gross * ((1.0 - L_Fmax) - (1.0 - Fmax) * dL_Fmax)
 
         # Fast damage calculation using pre-computed cumulative integrals
         # Find which bin Fmax is in
@@ -423,27 +476,24 @@ def find_Fmax(
     # Upper bound for F depends on whether we have singularities
     F_upper = 1.0 if use_empirical_lorenz else 1.0 - EPSILON
 
-    # Use secant method if we have a good initial guess, otherwise fall back to brentq
+    # Use Newton method if we have a good initial guess, otherwise fall back to brentq
     if initial_guess is not None and Fmin < initial_guess < F_upper:
         # First, check if the initial guess is already very close to the solution
         f_guess = tax_revenue_minus_target(initial_guess)
         if abs(f_guess) < tol:
             return initial_guess
 
-        # Use secant method with initial guess
+        # Use Newton's method with initial guess
+        # Newton's method has quadratic convergence (4-6 iterations typical)
+        # vs secant's superlinear convergence (10-20 iterations typical)
         try:
-            # Secant needs two starting points; use initial_guess and a small perturbation
-            x0 = initial_guess
-            x1 = initial_guess + 0.001 * (F_upper - Fmin)  # Small step towards the middle
-            x1 = np.clip(x1, Fmin + EPSILON, F_upper)
-
-            sol = root_scalar(tax_revenue_minus_target, method='secant', x0=x0, x1=x1, xtol=tol, maxiter=50)
-            if sol.converged and Fmin <= sol.root <= F_upper:
-                return sol.root
+            sol = newton(tax_revenue_minus_target, initial_guess, tol=tol, maxiter=20)
+            if Fmin <= sol <= F_upper:
+                return sol
         except (ValueError, RuntimeError):
             pass  # Fall through to bracketing method
 
-    # Fall back to bracketing method if secant fails or no initial guess
+    # Fall back to bracketing method if Newton fails or no initial guess
     left = Fmin
     right = F_upper
     f_left = tax_revenue_minus_target(left)
@@ -460,7 +510,7 @@ def find_Fmax(
 
     sol = root_scalar(tax_revenue_minus_target, bracket=[left, right], method="brentq", xtol=tol)
     if not sol.converged:
-        raise RuntimeError("root_scalar did not converge for find_Fmax_analytical")
+        raise RuntimeError("root_scalar did not converge for find_Fmax")
 
     return sol.root
 
@@ -551,19 +601,14 @@ def find_Fmin(
     damage_cumulative = np.concatenate(([0.0], np.cumsum(damage_per_bin)))
 
     def subsidy_minus_target(Fmin):
-
-
-        # Lorenz contribution
+        # Lorenz contribution (use combined function to avoid redundant computation)
         # difference if everyone were consuming at Fmin rate minus actual integrated to Fmin.
         if use_empirical_lorenz:
-            lorenz_part = y_gross * (1.0 - uniform_tax_rate) * (
-                Fmin * L_empirical_lorenz_derivative(Fmin, gini) -
-                L_empirical_lorenz(Fmin, gini)
-            )
+            L_Fmin, dL_Fmin = L_empirical_lorenz_and_derivative(Fmin, gini)
+            lorenz_part = y_gross * (1.0 - uniform_tax_rate) * (Fmin * dL_Fmin - L_Fmin)
         else:
-            lorenz_part = y_gross * (1.0 - uniform_tax_rate) * (
-                Fmin * L_pareto_derivative(Fmin, gini) - L_pareto(Fmin, gini)
-            )
+            L_Fmin, dL_Fmin = L_pareto_and_derivative(Fmin, gini)
+            lorenz_part = y_gross * (1.0 - uniform_tax_rate) * (Fmin * dL_Fmin - L_Fmin)
 
         # Fast damage calculation using pre-computed cumulative integrals
         # Find which bin Fmin is in
@@ -596,27 +641,24 @@ def find_Fmin(
 
         return subsidy_amount - redistribution_amount
 
-    # Use secant method if we have a good initial guess, otherwise fall back to brentq
+    # Use Newton method if we have a good initial guess, otherwise fall back to brentq
     if initial_guess is not None and 0.0 < initial_guess < Fmax - EPSILON:
         # First, check if the initial guess is already very close to the solution
         f_guess = subsidy_minus_target(initial_guess)
         if abs(f_guess) < tol:
             return initial_guess
 
-        # Use secant method with initial guess
+        # Use Newton's method with initial guess
+        # Newton's method has quadratic convergence (4-6 iterations typical)
+        # vs secant's superlinear convergence (10-20 iterations typical)
         try:
-            # Secant needs two starting points; use initial_guess and a small perturbation
-            x0 = initial_guess
-            x1 = initial_guess + 0.001   # Small step towards the middle
-            x1 = np.clip(x1, EPSILON, Fmax - EPSILON)
-
-            sol = root_scalar(subsidy_minus_target, method='secant', x0=x0, x1=x1, xtol=tol, maxiter=50)
-            if sol.converged and 0.0 <= sol.root <= Fmax:
-                return sol.root
+            sol = newton(subsidy_minus_target, initial_guess, tol=tol, maxiter=20)
+            if 0.0 <= sol <= Fmax:
+                return sol
         except (ValueError, RuntimeError):
             pass  # Fall through to bracketing method
 
-    # Fall back to bracketing method if secant fails or no initial guess
+    # Fall back to bracketing method if Newton fails or no initial guess
     left = 0.0
     right = Fmax - EPSILON
     f_left = subsidy_minus_target(left)
@@ -633,7 +675,7 @@ def find_Fmin(
 
     sol = root_scalar(subsidy_minus_target, bracket=[left, right], method="brentq", xtol=tol)
     if not sol.converged:
-        raise RuntimeError("root_scalar did not converge for find_Fmin_analytical")
+        raise RuntimeError("root_scalar did not converge for find_Fmin")
 
     return sol.root
 

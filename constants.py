@@ -70,3 +70,16 @@ EMPIRICAL_LORENZ_P3 = 135.059674
 EMPIRICAL_LORENZ_W1 = 3.776187268483524e-01
 EMPIRICAL_LORENZ_W2 = 3.671247620949191e-01
 EMPIRICAL_LORENZ_W3 = 9.538538350961864e-02
+
+# Derived constants (computed once at module import time for performance)
+# w₀ is the weight for the first term, derived from the constraint that weights sum to 1
+EMPIRICAL_LORENZ_W0 = 1.0 - EMPIRICAL_LORENZ_W1 - EMPIRICAL_LORENZ_W2 - EMPIRICAL_LORENZ_W3
+
+# Base Gini coefficient for the empirical Lorenz curve
+# Gini_base = 1 - 2·[w₀/(p₀+1) + w₁/(p₁+1) + w₂/(p₂+1) + w₃/(p₃+1)]
+EMPIRICAL_LORENZ_BASE_GINI = 1.0 - 2.0 * (
+    EMPIRICAL_LORENZ_W0 / (EMPIRICAL_LORENZ_P0 + 1.0) +
+    EMPIRICAL_LORENZ_W1 / (EMPIRICAL_LORENZ_P1 + 1.0) +
+    EMPIRICAL_LORENZ_W2 / (EMPIRICAL_LORENZ_P2 + 1.0) +
+    EMPIRICAL_LORENZ_W3 / (EMPIRICAL_LORENZ_P3 + 1.0)
+)
