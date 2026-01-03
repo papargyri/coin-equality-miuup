@@ -9,14 +9,15 @@ Computes utility ratios analytically using CRRA utility, Lorenz curves, and quad
 Usage (examples):
 - PDF only:
     python plot_utility_ratios.py json/config_008_f-t-f-f-f_10_1_1000.json
-- PDF + Panel A CSV (gini, damage_exponent, utility_ratio):
-    python plot_utility_ratios.py json/config_008_f-t-f-f-f_10_1_1000.json --panel-a-csv panel_a.csv
-- PDF + Panel A CSV + XLSX (requires pandas):
-    python plot_utility_ratios.py json/config_008_f-t-f-f-f_10_1_1000.json --panel-a-csv panel_a.csv --panel-a-xlsx panel_a.xlsx
+- PDF + CSV export for both panels:
+    python plot_utility_ratios.py json/config_008_f-t-f-f-f_10_1_1000.json --csv
+- PDF + CSV + XLSX export for both panels (requires pandas):
+    python plot_utility_ratios.py json/config_008_f-t-f-f-f_10_1_1000.json --csv --xlsx
 
 Notes:
 - The required positional argument is the JSON configuration file.
-- Relative output paths (e.g., panel_a.csv) are written inside the run's timestamped directory under data/output/.
+- All output files are written to a timestamped directory under data/output/.
+- CSV and XLSX files are named {run_name}_panel_a.{csv,xlsx} and {run_name}_panel_b.{csv,xlsx}.
 """
 
 import argparse
@@ -572,7 +573,47 @@ def write_panel_a_xlsx(path, gini_mesh, exponent_mesh, ratio_grid):
     df.to_excel(path, index=False)
 
 
-def main(config_path, output_pdf, n_quad_override, panel_a_csv, panel_a_xlsx):
+def write_panel_b_csv(path, gini_mesh, tax_rate_mesh, ratio_grid):
+    """Write Panel B grid with Gini as columns and tax rates as rows."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    gini_vals = gini_mesh[0, :]
+    tax_rate_vals = tax_rate_mesh[:, 0]
+
+    with open(path, 'w', newline='') as f:
+        writer = csv.writer(f)
+        header = ['tax_rate'] + list(gini_vals)
+        writer.writerow(header)
+        for tax_idx, tax_val in enumerate(tax_rate_vals):
+            row = [tax_val] + list(ratio_grid[tax_idx, :])
+            writer.writerow(row)
+
+
+def write_panel_b_xlsx(path, gini_mesh, tax_rate_mesh, ratio_grid):
+    try:
+        import pandas as pd
+    except ImportError:
+        print('pandas not installed; skipping Panel B XLSX export')
+        return
+
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    gini_vals = gini_mesh[0, :]
+    tax_rate_vals = tax_rate_mesh[:, 0]
+
+    data = {
+        'tax_rate': tax_rate_vals,
+    }
+    for col_idx, g_val in enumerate(gini_vals):
+        data[g_val] = ratio_grid[:, col_idx]
+
+    df = pd.DataFrame(data)
+    df.to_excel(path, index=False)
+
+
+def main(config_path, output_pdf, n_quad_override, csv_export, xlsx_export):
     """
     Main execution function.
 
@@ -584,6 +625,10 @@ def main(config_path, output_pdf, n_quad_override, panel_a_csv, panel_a_xlsx):
         Output PDF filename (if None, uses default in timestamped directory)
     n_quad_override : int or None
         Number of quadrature points override
+    csv_export : bool
+        Whether to export Panel A and Panel B as CSV files
+    xlsx_export : bool
+        Whether to export Panel A and Panel B as XLSX files
     """
     config = load_configuration(config_path)
 
@@ -653,14 +698,6 @@ def main(config_path, output_pdf, n_quad_override, panel_a_csv, panel_a_xlsx):
 
     ratio_grid_damage = compute_damage_ratio_grid(gini_mesh_damage, exponent_mesh, base_params_damage, n_quad)
 
-    if panel_a_csv is not None:
-        panel_a_csv_path = resolve_out_path(panel_a_csv, f'{run_name}_panel_a.csv')
-        write_panel_a_csv(panel_a_csv_path, gini_mesh_damage, exponent_mesh, ratio_grid_damage)
-
-    if panel_a_xlsx is not None:
-        panel_a_xlsx_path = resolve_out_path(panel_a_xlsx, f'{run_name}_panel_a.xlsx')
-        write_panel_a_xlsx(panel_a_xlsx_path, gini_mesh_damage, exponent_mesh, ratio_grid_damage)
-
     print(f'  Panel A ratio range: [{np.min(ratio_grid_damage):.4f}, {np.max(ratio_grid_damage):.4f}]')
     print(f'  Panel A ratio at exponent=0, Gini=0: {ratio_grid_damage[0, 0]:.4f}')
     print(f'  Panel A ratio at exponent=0, Gini=0.7: {ratio_grid_damage[0, -1]:.4f}')
@@ -693,6 +730,20 @@ def main(config_path, output_pdf, n_quad_override, panel_a_csv, panel_a_xlsx):
         'ratio_grid': ratio_grid_tax,
     }
 
+    if csv_export:
+        panel_a_csv_path = output_dir / f'{run_name}_panel_a.csv'
+        panel_b_csv_path = output_dir / f'{run_name}_panel_b.csv'
+        write_panel_a_csv(panel_a_csv_path, gini_mesh_damage, exponent_mesh, ratio_grid_damage)
+        write_panel_b_csv(panel_b_csv_path, gini_mesh_tax, tax_rate_mesh, ratio_grid_tax)
+        print(f'Exported CSV files: {panel_a_csv_path}, {panel_b_csv_path}')
+
+    if xlsx_export:
+        panel_a_xlsx_path = output_dir / f'{run_name}_panel_a.xlsx'
+        panel_b_xlsx_path = output_dir / f'{run_name}_panel_b.xlsx'
+        write_panel_a_xlsx(panel_a_xlsx_path, gini_mesh_damage, exponent_mesh, ratio_grid_damage)
+        write_panel_b_xlsx(panel_b_xlsx_path, gini_mesh_tax, tax_rate_mesh, ratio_grid_tax)
+        print(f'Exported XLSX files: {panel_a_xlsx_path}, {panel_b_xlsx_path}')
+
     print(f'Creating 2-panel PDF figure: {output_pdf_path}')
     create_two_panel_figure(damage_data, tax_data, output_pdf_path)
 
@@ -723,17 +774,15 @@ if __name__ == '__main__':
     )
 
     parser.add_argument(
-        '--panel-a-csv',
-        type=str,
-        default=None,
-        help='Optional: path to write Panel A data as CSV (relative paths go under the timestamped output directory)'
+        '--csv',
+        action='store_true',
+        help='Export both Panel A and Panel B data as CSV files'
     )
     parser.add_argument(
-        '--panel-a-xlsx',
-        type=str,
-        default=None,
-        help='Optional: path to write Panel A data as XLSX (requires pandas; relative paths go under the timestamped output directory)'
+        '--xlsx',
+        action='store_true',
+        help='Export both Panel A and Panel B data as XLSX files (requires pandas)'
     )
 
     args = parser.parse_args()
-    main(args.config, args.output, args.n_quad, args.panel_a_csv, args.panel_a_xlsx)
+    main(args.config, args.output, args.n_quad, args.csv, args.xlsx)
