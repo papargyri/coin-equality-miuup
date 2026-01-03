@@ -14,6 +14,7 @@ from matplotlib.backends.backend_pdf import PdfPages
 from scipy.special import roots_legendre
 from scipy.optimize import root_scalar
 from pathlib import Path
+from datetime import datetime
 
 from parameters import load_configuration, evaluate_params_at_time
 from distribution_utilities import (
@@ -106,6 +107,32 @@ def compute_aggregate_utility(gini, y_mean, eta, s, n_quad, use_empirical_lorenz
 
     U_aggregate = np.sum(Fwi * utility_yi)
 
+    return U_aggregate
+
+
+def compute_aggregate_utility_from_income_array(yi, eta, s, Fwi):
+    """
+    Compute aggregate utility directly from income array.
+
+    Parameters
+    ----------
+    yi : ndarray
+        Income at each quadrature point
+    eta : float
+        CRRA parameter
+    s : float
+        Savings rate
+    Fwi : ndarray
+        Quadrature weights
+
+    Returns
+    -------
+    float
+        Aggregate utility (population-weighted average)
+    """
+    ci = (1.0 - s) * yi
+    utility_yi = calculate_crra_utility(ci, eta)
+    U_aggregate = np.sum(Fwi * utility_yi)
     return U_aggregate
 
 
@@ -260,6 +287,16 @@ def compute_damage_ratio_grid(gini_mesh, exponent_mesh, base_params, n_quad):
     """
     Compute utility ratios for climate damage sweep.
 
+    For each (Gini, exponent) point:
+    - Baseline: no damage
+    - Reference: uniform damage (exponent=0) at current Gini
+    - Test: income-dependent damage (current exponent) at current Gini
+    - Ratio = ΔU(Gini, exp) / ΔU(Gini, exp=0)
+            = (U_test - U_baseline) / (U_reference - U_baseline)
+
+    This measures the additional harm from income-dependent damage
+    (beyond what uniform damage would cause) at a given inequality level.
+
     Parameters
     ----------
     gini_mesh : ndarray
@@ -276,26 +313,15 @@ def compute_damage_ratio_grid(gini_mesh, exponent_mesh, base_params, n_quad):
     ndarray
         2D array of utility ratios
     """
-    y_gross = base_params['y_gross']
+    y_mean = 1.0
     eta = base_params['eta']
     s = base_params['s']
     Omega_base = base_params['Omega_base']
-    y_net_reference = base_params['y_net_reference']
     use_empirical_lorenz = base_params['use_empirical_lorenz']
 
     xi, wi = roots_legendre(n_quad)
     Fi = (xi + 1.0) / 2.0
     Fwi = wi / 2.0
-
-    gini_baseline = EPSILON
-
-    U_no_damage = compute_aggregate_utility(gini_baseline, y_gross, eta, s, n_quad, use_empirical_lorenz)
-
-    y_damaged_zero_gini_yi = apply_climate_damage_to_income(
-        y_gross, Omega_base, 0.0, y_net_reference, Fi, gini_baseline, use_empirical_lorenz
-    )
-    y_damaged_zero_gini_mean = np.sum(Fwi * y_damaged_zero_gini_yi)
-    U_damage_at_zero_gini = compute_aggregate_utility(gini_baseline, y_damaged_zero_gini_mean, eta, s, n_quad, use_empirical_lorenz)
 
     ratio_grid = np.zeros_like(gini_mesh)
 
@@ -306,15 +332,19 @@ def compute_damage_ratio_grid(gini_mesh, exponent_mesh, base_params, n_quad):
             gini = max(gini_mesh[i, j], EPSILON)
             exponent = exponent_mesh[i, j]
 
-            y_damaged_yi = apply_climate_damage_to_income(
-                y_gross, Omega_base, exponent, y_net_reference, Fi, gini, use_empirical_lorenz
+            U_no_damage = compute_aggregate_utility(gini, y_mean, eta, s, n_quad, use_empirical_lorenz)
+
+            y_uniform_damage_yi = apply_climate_damage_to_income(
+                y_mean, Omega_base, 0.0, y_mean, Fi, gini, use_empirical_lorenz
             )
+            U_uniform_damage = compute_aggregate_utility_from_income_array(y_uniform_damage_yi, eta, s, Fwi)
 
-            y_damaged_mean = np.sum(Fwi * y_damaged_yi)
+            y_income_dependent_damage_yi = apply_climate_damage_to_income(
+                y_mean, Omega_base, exponent, y_mean, Fi, gini, use_empirical_lorenz
+            )
+            U_income_dependent_damage = compute_aggregate_utility_from_income_array(y_income_dependent_damage_yi, eta, s, Fwi)
 
-            U_damage_at_gini = compute_aggregate_utility(gini, y_damaged_mean, eta, s, n_quad, use_empirical_lorenz)
-
-            ratio_grid[i, j] = (U_damage_at_gini - U_no_damage) / (U_damage_at_zero_gini - U_no_damage)
+            ratio_grid[i, j] = (U_income_dependent_damage - U_no_damage) / (U_uniform_damage - U_no_damage)
 
     return ratio_grid
 
@@ -366,12 +396,10 @@ def compute_tax_ratio_grid(gini_mesh, tax_rate_mesh, base_params, n_quad):
                 continue
 
             y_uniform_tax_yi = apply_uniform_taxation(y_gross, tax_rate, gini, Fi, use_empirical_lorenz)
-            y_uniform_tax_mean = np.sum(Fwi * y_uniform_tax_yi)
-            U_uniform_tax = compute_aggregate_utility(gini, y_uniform_tax_mean, eta, s, n_quad, use_empirical_lorenz)
+            U_uniform_tax = compute_aggregate_utility_from_income_array(y_uniform_tax_yi, eta, s, Fwi)
 
             y_progressive_tax_yi = apply_progressive_taxation(y_gross, tax_rate, gini, Fi, Fwi, use_empirical_lorenz)
-            y_progressive_tax_mean = np.sum(Fwi * y_progressive_tax_yi)
-            U_progressive_tax = compute_aggregate_utility(gini, y_progressive_tax_mean, eta, s, n_quad, use_empirical_lorenz)
+            U_progressive_tax = compute_aggregate_utility_from_income_array(y_progressive_tax_yi, eta, s, Fwi)
 
             ratio_grid[i, j] = (U_progressive_tax - U_no_tax) / (U_uniform_tax - U_no_tax)
 
@@ -468,12 +496,22 @@ def main(config_path, output_pdf, n_quad_override):
     ----------
     config_path : str
         Path to JSON configuration file
-    output_pdf : str
-        Output PDF file path
+    output_pdf : str or None
+        Output PDF filename (if None, uses default in timestamped directory)
     n_quad_override : int or None
         Number of quadrature points override
     """
     config = load_configuration(config_path)
+
+    run_name = config.run_name
+    timestamp = datetime.now().strftime('%Y%m%d-%H%M%S')
+    output_dir = Path('data') / 'output' / f'utility_ratio_plots_{run_name}_{timestamp}'
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    if output_pdf is None:
+        output_pdf_path = output_dir / f'{run_name}_utility_ratios.pdf'
+    else:
+        output_pdf_path = output_dir / output_pdf
 
     params_t0 = evaluate_params_at_time(0.0, config)
 
@@ -528,12 +566,25 @@ def main(config_path, output_pdf, n_quad_override):
 
     ratio_grid_damage = compute_damage_ratio_grid(gini_mesh_damage, exponent_mesh, base_params_damage, n_quad)
 
+    print(f'  Panel A ratio range: [{np.min(ratio_grid_damage):.4f}, {np.max(ratio_grid_damage):.4f}]')
+    print(f'  Panel A ratio at exponent=0, Gini=0: {ratio_grid_damage[0, 0]:.4f}')
+    print(f'  Panel A ratio at exponent=0, Gini=0.7: {ratio_grid_damage[0, -1]:.4f}')
+
+    min_idx = np.unravel_index(np.argmin(ratio_grid_damage), ratio_grid_damage.shape)
+    min_gini = gini_vals_damage[min_idx[1]]
+    min_exp = exponent_vals[min_idx[0]]
+    print(f'  Panel A minimum at Gini={min_gini:.3f}, exponent={min_exp:.3f}')
+
     print('Computing Panel B: Progressive taxation utility ratios...')
     gini_vals_tax = np.linspace(GINI_RANGE_TAX[0], GINI_RANGE_TAX[1], N_GINI_TAX)
     tax_rate_vals = np.linspace(TAX_RATE_RANGE[0], TAX_RATE_RANGE[1], N_TAX_RATE)
     gini_mesh_tax, tax_rate_mesh = np.meshgrid(gini_vals_tax, tax_rate_vals)
 
     ratio_grid_tax = compute_tax_ratio_grid(gini_mesh_tax, tax_rate_mesh, base_params_tax, n_quad)
+
+    print(f'  Panel B ratio range: [{np.min(ratio_grid_tax):.4f}, {np.max(ratio_grid_tax):.4f}]')
+    print(f'  Panel B ratio at tax_rate=0, Gini=0: {ratio_grid_tax[0, 0]:.4f}')
+    print(f'  Panel B ratio at tax_rate=0, Gini=0.7: {ratio_grid_tax[0, -1]:.4f}')
 
     damage_data = {
         'gini_mesh': gini_mesh_damage,
@@ -547,9 +598,10 @@ def main(config_path, output_pdf, n_quad_override):
         'ratio_grid': ratio_grid_tax,
     }
 
-    print(f'Creating 2-panel PDF figure: {output_pdf}')
-    create_two_panel_figure(damage_data, tax_data, output_pdf)
+    print(f'Creating 2-panel PDF figure: {output_pdf_path}')
+    create_two_panel_figure(damage_data, tax_data, output_pdf_path)
 
+    print(f'Output saved to: {output_dir}')
     print('Done!')
 
 
@@ -565,8 +617,8 @@ if __name__ == '__main__':
     parser.add_argument(
         '-o', '--output',
         type=str,
-        default='utility_ratios.pdf',
-        help='Output PDF filename (default: utility_ratios.pdf)'
+        default=None,
+        help='Output PDF filename (default: {run_name}_utility_ratios.pdf in timestamped directory)'
     )
     parser.add_argument(
         '--n-quad',
