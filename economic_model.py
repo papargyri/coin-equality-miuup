@@ -265,8 +265,16 @@ def calculate_tendencies(state, params, omega_yi_Omega_base_ratio_prev, Omega_Om
         # Clip scaled values to ensure they remain valid damage fractions
         Omega_calc = np.clip(Omega_calc, 0.0, 1.0 - EPSILON)
         omega_yi_calc = np.clip(omega_yi_calc, 0.0, 1.0 - EPSILON)
+    elif income_dependent_aggregate_damage:
+        # NEW CASE: Income-dependent calculation but uniform application
+        # Use the aggregate damage ratio (from previous timestep) uniformly across all income groups
+        Omega_calc = Omega_Omega_base_ratio_prev * Omega_base
+        omega_yi_calc = np.full_like(omega_yi_Omega_base_ratio_prev, Omega_calc)
+        Omega_calc = np.clip(Omega_calc, 0.0, 1.0 - EPSILON)
+        omega_yi_calc = np.clip(omega_yi_calc, 0.0, 1.0 - EPSILON)
+        # Keep y_damage_distribution_exponent for income-dependent calculation
     else:
-        # No income-dependent damage distribution, use aggregate damage only
+        # No income-dependent damage at all, use temperature-based damage only
         Omega_calc = Omega_base
         omega_yi_calc = np.full_like(omega_yi_Omega_base_ratio_prev, Omega_base)
         y_damage_distribution_exponent = 0.0 # set damage exponent to zero if no income-dependent damage
@@ -563,7 +571,19 @@ def calculate_tendencies(state, params, omega_yi_Omega_base_ratio_prev, Omega_Om
         # Calculate aggregate utility by summing over all bins
         aggregate_utility = np.sum(Fwi * utility_yi)
 
-        if not income_dependent_aggregate_damage and income_dependent_damage_distribution:
+        if income_dependent_aggregate_damage and not income_dependent_damage_distribution:
+            # NEW CASE: Calculate GDP-weighted mean damage and apply uniformly
+            # omega_yi currently contains income-dependent damage at each point
+            # Calculate the GDP-weighted mean across all income groups
+            y_net_aggregate = np.sum(Fwi * y_net_yi)
+            if y_net_aggregate > 0:
+                omega_mean = np.sum(Fwi * y_net_yi * omega_yi) / y_net_aggregate
+                # Apply the mean damage uniformly to all income groups
+                omega_yi[:] = omega_mean
+            else:
+                # If no income, set damage to zero
+                omega_yi[:] = 0.0
+        elif not income_dependent_aggregate_damage and income_dependent_damage_distribution:
             # Only rescale if we have income-dependent distribution but want aggregate to match temperature-based damage
             # Rescale to match Omega_base * y_net (consistent with uniform distribution case)
             # total_climate_damage_pre_scale = sum of (damage_fraction * income) across all groups
