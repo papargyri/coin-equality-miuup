@@ -37,17 +37,16 @@ from distribution_utilities import (
     L_empirical_lorenz,
     L_pareto,
 )
-from constants import EPSILON, LOOSE_EPSILON
-
+from constants import EPSILON, LOOSE_EPSILON, EMPIRICAL_LORENZ_BASE_GINI
 
 DELTA_T_REPRESENTATIVE = 2.0
 
-GINI_RANGE_DAMAGE = (0.0, 0.7)
+GINI_RANGE_DAMAGE = (0.0, EMPIRICAL_LORENZ_BASE_GINI)
 N_GINI_DAMAGE = 50
 EXPONENT_RANGE = (0.0, 1.0)
 N_EXPONENT = 50
 
-GINI_RANGE_TAX = (0.0, 0.7)
+GINI_RANGE_TAX = (0.0, EMPIRICAL_LORENZ_BASE_GINI)
 N_GINI_TAX = 50
 TAX_RATE_RANGE = (0.0, 0.2)
 N_TAX_RATE = 50
@@ -668,11 +667,11 @@ def main(config_path, output_pdf, n_quad_override, csv_export, xlsx_export):
         n_quad = config.integration_params.n_quad
 
     base_params_damage = {
-        'y_gross': y_gross,
+        'y_gross': 1.0,
         'eta': eta,
         's': s,
         'Omega_base': Omega_base,
-        'y_net_reference': y_net_reference,
+        'y_net_reference': 1.0,
         'use_empirical_lorenz': use_empirical_lorenz,
     }
 

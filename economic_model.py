@@ -20,7 +20,7 @@ from distribution_utilities import (
     stepwise_integrate
 )
 from parameters import evaluate_params_at_time
-from constants import EPSILON, LOOSE_EPSILON, NEG_BIGNUM
+from constants import EPSILON, LOOSE_EPSILON, NEG_BIGNUM, EMPIRICAL_LORENZ_BASE_GINI
 
 def gini_from_distribution(values_yi, Fi_edges, Fwi):
     """
@@ -218,6 +218,14 @@ def calculate_tendencies(state, params, omega_yi_Omega_base_ratio_prev, Omega_Om
     y_net_reference = params['y_net_reference']
     psi1 = params['psi1']
     psi2 = params['psi2']
+
+    # Validate Gini coefficient for empirical Lorenz
+    if use_empirical_lorenz and gini > EMPIRICAL_LORENZ_BASE_GINI:
+        raise ValueError(
+            f"Gini coefficient ({gini:.4f}) exceeds maximum allowed value "
+            f"({EMPIRICAL_LORENZ_BASE_GINI:.4f}) for empirical Lorenz curve. "
+            f"Either reduce Gini or set use_empirical_lorenz=false to use Pareto-Lorenz formulation."
+        )
 
     # Policy switches
     income_dependent_aggregate_damage = params['income_dependent_aggregate_damage']
