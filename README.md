@@ -261,18 +261,30 @@ python run_parallel.py "config_*.json" --optimization_params.max_evaluations 100
 
 ### Utility Ratio Plots (damage vs. taxation)
 
-Generate the two-panel utility-ratio diagnostic (Panel A: income-dependent climate damage vs. uniform; Panel B: progressive vs. uniform tax). This creates a timestamped folder under `data/output/` containing a PDF plus optional Panel A data exports:
+Generate a two-panel utility-ratio diagnostic figure:
+- **Panel A**: Climate damage utility ratios - comparing income-dependent damage distribution vs. uniform damage (colormap: plasma_r, range: 1.0-3.0)
+- **Panel B**: Progressive taxation utility ratios - comparing progressive tax vs. uniform tax (colormap: viridis_r, range: 1.0-10.0)
+
+This creates a timestamped folder under `data/output/` containing a PDF plus optional data exports for both panels:
 
 - PDF only:
-   - `python plot_utility_ratios.py json/config_008_f-t-f-f-f_10_1_1000.json`
-- PDF + Panel A CSV (gini, damage_exponent, utility_ratio):
-   - `python plot_utility_ratios.py json/config_008_f-t-f-f-f_10_1_1000.json --panel-a-csv panel_a.csv`
-- PDF + Panel A CSV/XLSX (requires pandas for XLSX):
-   - `python plot_utility_ratios.py json/config_008_f-t-f-f-f_10_1_1000.json --panel-a-csv panel_a.csv --panel-a-xlsx panel_a.xlsx`
+   ```bash
+   python plot_utility_ratios.py json/config_008_f-t-f-f-f_10_1_1000.json
+   ```
+- PDF + CSV export for both panels:
+   ```bash
+   python plot_utility_ratios.py json/config_008_f-t-f-f-f_10_1_1000.json --csv
+   ```
+- PDF + CSV + XLSX export for both panels (requires pandas):
+   ```bash
+   python plot_utility_ratios.py json/config_008_f-t-f-f-f_10_1_1000.json --csv --xlsx
+   ```
 
 Notes:
-- The ratio holds aggregate damage fixed; it compares how redistributing the same total damage across incomes affects utility. Values <1 indicate income-dependent damage is less harmful than the uniform baseline (e.g., when mean income exceeds the reference and rich agents take relatively less damage).
-- Relative output paths (e.g., `panel_a.csv`) are written inside the run’s timestamped directory alongside the PDF.
+- Panel A holds aggregate damage fixed and compares how redistributing the same total damage across incomes affects utility
+- Panel B compares utility under progressive taxation (taxing only highest earners) vs. uniform taxation
+- All utility ratios are computed relative to the no-tax/uniform-damage baseline
+- All output files (PDF, CSV, XLSX) are written to a timestamped directory alongside terminal output
 
 All overrides are applied to every configuration file matched by the patterns.
 

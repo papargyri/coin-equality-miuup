@@ -3,6 +3,12 @@
 ## Coding Philosophy
 This project prioritizes elegant, fail-fast code that surfaces errors quickly rather than hiding them.
 
+### Root Cause Analysis
+- Always investigate and understand the root cause of problems before implementing solutions
+- Avoid band-aid fixes that mask symptoms without addressing underlying issues
+- When unexpected behavior occurs, trace it back to its source rather than applying quick patches
+- Document the reasoning behind fixes to prevent similar issues
+
 ## Core Style Requirements
 
 ### Error Handling
