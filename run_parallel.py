@@ -205,6 +205,7 @@ def main():
     print("  - Jobs are running in the background")
     print("  - Terminal output for each job is saved to terminal_output.txt in its output directory")
     print("\nMonitoring:")
+    print("  - Count running jobs:    ps aux | grep run_optimization | grep -v grep | wc -l")
     print("  - View running jobs:     ps aux | grep run_optimization")
     print("  - Monitor job progress:  tail -f data/output/<run_name>_*/terminal_output.txt")
     print("\nControl:")

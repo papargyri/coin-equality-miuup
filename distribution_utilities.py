@@ -269,7 +269,10 @@ _first_call_diagnostics_printed = False
 _call_counter = 0
 
 
-def y_net_of_F(F, Fmin, Fmax, y_gross, omega_yi_calc, Fi_edges, uniform_tax_rate, uniform_redistribution, gini,
+def y_net_of_F(F, Fmin, Fmax, y_gross,
+               omega_Fmin_calc, omega_yi_calc, omega_Fmax_calc,
+               Fmin_prev, Fmax_prev, xi_edges,
+               uniform_tax_rate, uniform_redistribution, gini,
                use_empirical_lorenz):
     """
     Compute net income y_net(F) at population rank F after accounting for damage, tax, and redistribution.
@@ -280,7 +283,7 @@ def y_net_of_F(F, Fmin, Fmax, y_gross, omega_yi_calc, Fi_edges, uniform_tax_rate
         Order: Lorenz → Damage → Tax → Redistribution (untaxed)
 
     where:
-        omega_prev_F = stepwise_interpolate(F, omega_yi_calc, Fi_edges)  [damage fraction at rank F]
+        omega_prev_F = lookup damage at F using PREVIOUS timestep's three-region structure
         dL/dF(F) = Lorenz derivative (Pareto or Empirical formulation)
 
     Parameters
@@ -293,10 +296,18 @@ def y_net_of_F(F, Fmin, Fmax, y_gross, omega_yi_calc, Fi_edges, uniform_tax_rate
         Maximum population rank for clipping F to [Fmin, Fmax].
     y_gross : float
         Gross income per capita before damage.
+    omega_Fmin_calc : float
+        Damage fraction for F <= Fmin_prev (Region 1) from previous timestep.
     omega_yi_calc : ndarray
-        Damage fractions at quadrature points from previous timestep.
-    Fi_edges : ndarray
-        Interval boundaries for stepwise damage interpolation.
+        Damage fractions at quadrature points (Region 2) from previous timestep - FIXED length n_quad.
+    omega_Fmax_calc : float
+        Damage fraction for F >= Fmax_prev (Region 3) from previous timestep.
+    Fmin_prev : float
+        Previous timestep's Fmin (defines mapping for omega_yi_calc to F space).
+    Fmax_prev : float
+        Previous timestep's Fmax (defines mapping for omega_yi_calc to F space).
+    xi_edges : ndarray
+        Standard quadrature edges in xi space [-1, 1] for stepwise damage interpolation.
     uniform_tax_rate : float
         Uniform tax rate (fraction of gross income).
     uniform_redistribution : float
@@ -323,8 +334,35 @@ def y_net_of_F(F, Fmin, Fmax, y_gross, omega_yi_calc, Fi_edges, uniform_tax_rate
     if is_scalar:
         F = F.reshape(1)
 
-    # Get damage fraction at rank F via stepwise interpolation
-    omega_prev_F = stepwise_interpolate(F, omega_yi_calc, Fi_edges)
+    # FAST PATH: When previous timestep covered full [0,1] range, use direct xi interpolation
+    from constants import EPSILON
+    if abs(Fmin_prev) < EPSILON and abs(Fmax_prev - 1.0) < EPSILON:
+        # Previous grid was [0,1] → F maps directly to xi via: xi = 2*F - 1
+        xi_vals = 2.0 * F - 1.0
+        omega_prev_F = stepwise_interpolate(xi_vals, omega_yi_calc, xi_edges)
+    else:
+        # Three-region damage lookup using PREVIOUS timestep's structure
+        # Classify all F points into three regions
+        in_region1 = F <= Fmin_prev
+        in_region3 = F >= Fmax_prev
+        in_region2 = ~(in_region1 | in_region3)
+
+        # Initialize damage array
+        omega_prev_F = np.zeros_like(F, dtype=float)
+
+        # Region 1 and 3: constant values
+        omega_prev_F[in_region1] = omega_Fmin_calc
+        omega_prev_F[in_region3] = omega_Fmax_calc
+
+        # Region 2: vectorized transformation and interpolation
+        if np.any(in_region2):
+            F_region2 = F[in_region2]
+            # Transform F to normalized coordinate x ∈ [0, 1] using PREVIOUS timestep's mapping
+            x_region2 = (F_region2 - Fmin_prev) / (Fmax_prev - Fmin_prev)
+            # Convert x from [0,1] to xi space [-1, 1]
+            xi_region2 = 2.0 * x_region2 - 1.0
+            # Vectorized interpolation for all region 2 points at once
+            omega_prev_F[in_region2] = stepwise_interpolate(xi_region2, omega_yi_calc, xi_edges)
 
     # dL/dF(F) - choose formulation
     if use_empirical_lorenz:
@@ -348,10 +386,10 @@ def find_Fmax(
     y_gross,
     gini,
     Omega,
-    omega_yi,
+    omega_Fmin_calc, omega_yi_calc, omega_Fmax_calc,
+    Fmin_prev, Fmax_prev, xi_edges,
     redistribution_amount,
     abateCost_amount,
-    Fi_edges,
     use_empirical_lorenz,
     tol=LOOSE_EPSILON,
     initial_guess=None,
@@ -388,16 +426,22 @@ def find_Fmax(
         Gini coefficient.
     Omega : float
         Aggregate climate damage fraction.
-    omega_yi : ndarray
-        Damage values at quadrature points (length N).
+    omega_Fmin_calc : float
+        Damage fraction for F <= Fmin_prev (Region 1) from previous timestep.
+    omega_yi_calc : ndarray
+        Damage fractions at quadrature points (Region 2) from previous timestep - FIXED length n_quad.
+    omega_Fmax_calc : float
+        Damage fraction for F >= Fmax_prev (Region 3) from previous timestep.
+    Fmin_prev : float
+        Previous timestep's Fmin (defines mapping for omega_yi_calc to F space).
+    Fmax_prev : float
+        Previous timestep's Fmax (defines mapping for omega_yi_calc to F space).
+    xi_edges : ndarray
+        Standard quadrature edges in xi space [-1, 1] for stepwise damage interpolation.
     redistribution_amount : float
         Per-capita redistribution amount.
-    uniform_redistribution : float
-        Uniform per-capita redistribution amount.
     abateCost_amount : float
         Per-capita abatement cost amount.
-    Fi_edges : ndarray
-        Interval boundaries for stepwise damage (length N+1).
     use_empirical_lorenz : bool
         If True, use Empirical Lorenz formulation; if False, use Pareto.
     tol : float, optional
@@ -414,6 +458,34 @@ def find_Fmax(
     # Always use 0.0 for uniform_redistribution when finding Fmax (see README.md Tax and Redistribution Logic)
     uniform_redistribution = 0.0
 
+    # Create Fi grid in F space [0,1] for damage integration
+    # Use xi_edges to create corresponding Fi_edges: Fi = (xi + 1) / 2
+    Fi_edges = (xi_edges + 1.0) / 2.0
+
+    # Pre-compute omega values at Fi grid points using VECTORIZED three-region lookup
+    # Classify all Fi_edges points into three regions at once
+    in_region1 = Fi_edges <= Fmin_prev
+    in_region3 = Fi_edges >= Fmax_prev
+    in_region2 = ~(in_region1 | in_region3)
+
+    # Initialize omega array
+    omega_at_Fi_edges = np.zeros_like(Fi_edges)
+
+    # Region 1 and 3: constant values
+    omega_at_Fi_edges[in_region1] = omega_Fmin_calc
+    omega_at_Fi_edges[in_region3] = omega_Fmax_calc
+
+    # Region 2: vectorized transformation and interpolation
+    if np.any(in_region2):
+        F_region2 = Fi_edges[in_region2]
+        x_region2 = (F_region2 - Fmin_prev) / (Fmax_prev - Fmin_prev)
+        xi_region2 = 2.0 * x_region2 - 1.0
+        # Vectorized interpolation for all region 2 points at once
+        omega_at_Fi_edges[in_region2] = stepwise_interpolate(xi_region2, omega_yi_calc, xi_edges)
+
+    # Use midpoint values for omega in each bin (stepwise constant assumption)
+    omega_yi_on_Fi_grid = (omega_at_Fi_edges[:-1] + omega_at_Fi_edges[1:]) / 2.0
+
     # Pre-compute cumulative damage integrals at bin edges for fast lookup
     # damage_cumulative[i] = integral of damage from 0 to Fi_edges[i]
     # Order: Lorenz → Damage → Tax (uniform tax rate is zero in this routine)
@@ -425,7 +497,7 @@ def find_Fmax(
         lorenz_diff = np.diff(L_empirical_lorenz(Fi_edges, gini))
     else:
         lorenz_diff = np.diff(L_pareto(Fi_edges, gini))
-    damage_per_bin = omega_yi * y_gross * lorenz_diff
+    damage_per_bin = omega_yi_on_Fi_grid * y_gross * lorenz_diff
     damage_cumulative = np.concatenate(([0.0], np.cumsum(damage_per_bin)))
     total_damage_integral = damage_cumulative[-1]
 
@@ -441,10 +513,18 @@ def find_Fmax(
         # Fast damage calculation using pre-computed cumulative integrals
         # Find which bin Fmax is in
         bin_idx = np.searchsorted(Fi_edges, Fmax, side='right') - 1
-        bin_idx = np.clip(bin_idx, 0, len(omega_yi) - 1)
+        bin_idx = np.clip(bin_idx, 0, len(omega_yi_on_Fi_grid) - 1)
 
-        # Damage at Fmax is constant within bin (stepwise function)
-        omega_at_Fmax = omega_yi[bin_idx]
+        # Damage at Fmax using three-region lookup from previous timestep
+        if Fmax <= Fmin_prev:
+            omega_at_Fmax = omega_Fmin_calc
+        elif Fmax >= Fmax_prev:
+            omega_at_Fmax = omega_Fmax_calc
+        else:
+            # Transform Fmax to xi space and interpolate
+            x = (Fmax - Fmin_prev) / (Fmax_prev - Fmin_prev)
+            xi_val = 2.0 * x - 1.0
+            omega_at_Fmax = stepwise_interpolate(xi_val, omega_yi_calc, xi_edges)
 
         # Integral from Fmax to 1.0 = total - integral from 0 to Fmax
         if Fmax <= Fi_edges[0]:
@@ -520,10 +600,10 @@ def find_Fmin(
     y_gross,
     gini,
     Omega,
-    omega_yi,
+    omega_Fmin_calc, omega_yi_calc, omega_Fmax_calc,
+    Fmin_prev, Fmax_prev, xi_edges,
     redistribution_amount,
     uniform_tax_rate,
-    Fi_edges,
     use_empirical_lorenz,
     tol=LOOSE_EPSILON,
     initial_guess=None,
@@ -559,16 +639,22 @@ def find_Fmin(
         Gini coefficient.
     Omega : float
         Aggregate climate damage fraction.
-    omega_yi : ndarray
-        Damage values at quadrature points (length N).
+    omega_Fmin_calc : float
+        Damage fraction for F <= Fmin_prev (Region 1) from previous timestep.
+    omega_yi_calc : ndarray
+        Damage fractions at quadrature points (Region 2) from previous timestep - FIXED length n_quad.
+    omega_Fmax_calc : float
+        Damage fraction for F >= Fmax_prev (Region 3) from previous timestep.
+    Fmin_prev : float
+        Previous timestep's Fmin (defines mapping for omega_yi_calc to F space).
+    Fmax_prev : float
+        Previous timestep's Fmax (defines mapping for omega_yi_calc to F space).
+    xi_edges : ndarray
+        Standard quadrature edges in xi space [-1, 1] for stepwise damage interpolation.
     redistribution_amount : float
         Per-capita redistribution amount (target subsidy).
-    uniform_redistribution : float
-        Uniform per-capita redistribution amount.
     uniform_tax_rate : float
         Uniform tax rate (fraction of income).
-    Fi_edges : ndarray
-        Interval boundaries for stepwise damage (length N+1).
     use_empirical_lorenz : bool
         If True, use Empirical Lorenz formulation; if False, use Pareto.
     tol : float, optional
@@ -586,6 +672,34 @@ def find_Fmin(
     # But everyone pays tax on their Lorenz income, so uniform_tax_rate is passed as parameter
     uniform_redistribution = 0.0
 
+    # Create Fi grid in F space [0,1] for damage integration
+    # Use xi_edges to create corresponding Fi_edges: Fi = (xi + 1) / 2
+    Fi_edges = (xi_edges + 1.0) / 2.0
+
+    # Pre-compute omega values at Fi grid points using VECTORIZED three-region lookup
+    # Classify all Fi_edges points into three regions at once
+    in_region1 = Fi_edges <= Fmin_prev
+    in_region3 = Fi_edges >= Fmax_prev
+    in_region2 = ~(in_region1 | in_region3)
+
+    # Initialize omega array
+    omega_at_Fi_edges = np.zeros_like(Fi_edges)
+
+    # Region 1 and 3: constant values
+    omega_at_Fi_edges[in_region1] = omega_Fmin_calc
+    omega_at_Fi_edges[in_region3] = omega_Fmax_calc
+
+    # Region 2: vectorized transformation and interpolation
+    if np.any(in_region2):
+        F_region2 = Fi_edges[in_region2]
+        x_region2 = (F_region2 - Fmin_prev) / (Fmax_prev - Fmin_prev)
+        xi_region2 = 2.0 * x_region2 - 1.0
+        # Vectorized interpolation for all region 2 points at once
+        omega_at_Fi_edges[in_region2] = stepwise_interpolate(xi_region2, omega_yi_calc, xi_edges)
+
+    # Use midpoint values for omega in each bin (stepwise constant assumption)
+    omega_yi_on_Fi_grid = (omega_at_Fi_edges[:-1] + omega_at_Fi_edges[1:]) / 2.0
+
     # Pre-compute cumulative damage integrals at bin edges for fast lookup
     # damage_cumulative[i] = integral of damage from 0 to Fi_edges[i]
     # damage(F) = omega(F) * y_gross * dL/dF(F) * (1 - tax)
@@ -597,7 +711,7 @@ def find_Fmin(
         lorenz_diff = np.diff(L_empirical_lorenz(Fi_edges, gini))
     else:
         lorenz_diff = np.diff(L_pareto(Fi_edges, gini))
-    damage_per_bin = omega_yi * y_gross * lorenz_diff * (1.0 - uniform_tax_rate)
+    damage_per_bin = omega_yi_on_Fi_grid * y_gross * lorenz_diff * (1.0 - uniform_tax_rate)
     damage_cumulative = np.concatenate(([0.0], np.cumsum(damage_per_bin)))
 
     def subsidy_minus_target(Fmin):
@@ -613,14 +727,24 @@ def find_Fmin(
         # Fast damage calculation using pre-computed cumulative integrals
         # Find which bin Fmin is in
         bin_idx = np.searchsorted(Fi_edges, Fmin, side='right') - 1
-        bin_idx = np.clip(bin_idx, 0, len(omega_yi) - 1)
+        bin_idx = np.clip(bin_idx, 0, len(omega_yi_on_Fi_grid) - 1)
 
-        # Omega_yi at Fmin is constant within bin (stepwise function)
+        # Damage at Fmin using three-region lookup from previous timestep
+        if Fmin <= Fmin_prev:
+            omega_at_Fmin = omega_Fmin_calc
+        elif Fmin >= Fmax_prev:
+            omega_at_Fmin = omega_Fmax_calc
+        else:
+            # Transform Fmin to xi space and interpolate
+            x = (Fmin - Fmin_prev) / (Fmax_prev - Fmin_prev)
+            xi_val = 2.0 * x - 1.0
+            omega_at_Fmin = stepwise_interpolate(xi_val, omega_yi_calc, xi_edges)
+
         # Order: Lorenz → Damage → Tax
         if use_empirical_lorenz:
-            damage_at_Fmin = y_gross * L_empirical_lorenz_derivative(Fmin, gini) * omega_yi[bin_idx] * (1.0 - uniform_tax_rate)
+            damage_at_Fmin = y_gross * L_empirical_lorenz_derivative(Fmin, gini) * omega_at_Fmin * (1.0 - uniform_tax_rate)
         else:
-            damage_at_Fmin = y_gross * L_pareto_derivative(Fmin, gini) * omega_yi[bin_idx] * (1.0 - uniform_tax_rate)
+            damage_at_Fmin = y_gross * L_pareto_derivative(Fmin, gini) * omega_at_Fmin * (1.0 - uniform_tax_rate)
 
         # Integral from 0 to Fmin = cumulative up to bin start + partial bin
         if Fmin <= Fi_edges[0]:

@@ -72,6 +72,41 @@ def gini_from_distribution(values_yi, Fi_edges, Fwi):
 
     return gini
 
+
+def remap_quadrature_to_interval(xi, wi, F_lower, F_upper):
+    """
+    Remap Gauss-Legendre quadrature from [-1,1] to [F_lower, F_upper].
+
+    Parameters
+    ----------
+    xi : ndarray
+        Gauss-Legendre nodes on [-1, 1] (length n_quad)
+    wi : ndarray
+        Gauss-Legendre weights on [-1, 1] (length n_quad)
+    F_lower : float
+        Lower bound of target interval
+    F_upper : float
+        Upper bound of target interval
+
+    Returns
+    -------
+    tuple of (ndarray, ndarray)
+        (Fi_remapped, Fwi_remapped) - nodes and weights on [F_lower, F_upper]
+
+    Notes
+    -----
+    Transformation formulas:
+    - Fi_remapped = F_lower + (F_upper - F_lower) * (xi + 1) / 2
+    - Fwi_remapped = wi * (F_upper - F_lower) / 2
+
+    Property: sum(Fwi_remapped) = F_upper - F_lower
+    """
+    interval_length = F_upper - F_lower
+    Fi_remapped = F_lower + interval_length * (xi + 1.0) / 2.0
+    Fwi_remapped = wi * interval_length / 2.0
+    return Fi_remapped, Fwi_remapped
+
+
 # Global timing statistics
 _timing_stats = {
     'call_count': 0,
@@ -108,7 +143,11 @@ def print_timing_stats():
     print(f"{'='*80}\n")
 
 
-def calculate_tendencies(state, params, omega_yi_Omega_base_ratio_prev, Omega_Omega_base_ratio_prev, xi, xi_edges, wi, Fmax_prev=None, Fmin_prev=None, store_detailed_output=True):
+def calculate_tendencies(state, params,
+                        omega_Fmin_Omega_base_ratio_prev, omega_yi_Omega_base_ratio_prev, omega_Fmax_Omega_base_ratio_prev,
+                        Fmin_prev, Fmax_prev,
+                        Omega_Omega_base_ratio_prev,
+                        xi, xi_edges, wi, store_detailed_output=True):
     """
     Calculate time derivatives and all derived variables.
 
@@ -140,10 +179,20 @@ def calculate_tendencies(state, params, omega_yi_Omega_base_ratio_prev, Omega_Om
         - 'Gini_restore': Rate of restoration to gini (yr^-1)
         - 'fract_gdp': Fraction of GDP available for redistribution and abatement
         - 'f': Fraction allocated to abatement vs redistribution
+    omega_Fmin_Omega_base_ratio_prev : float
+        Ratio of climate damage (Region 1: F ≤ Fmin) to base damage from previous timestep.
+        Units: dimensionless. Multiply by current Omega_base to get current damage fraction.
     omega_yi_Omega_base_ratio_prev : np.ndarray
-        Ratio of climate damage fractions to base damage from previous timestep (length N_QUAD).
-        Units: dimensionless. Multiply by current Omega_base to get current damage fractions.
-        Used to compute current income distribution with lagged damage to avoid circular dependency.
+        Ratio of climate damage fractions (Region 2: Fmin < F < Fmax) to base damage from
+        previous timestep (length N_QUAD). Units: dimensionless. Multiply by current Omega_base
+        to get current damage fractions. Grid is mapped to [Fmin_prev, Fmax_prev].
+    omega_Fmax_Omega_base_ratio_prev : float
+        Ratio of climate damage (Region 3: F ≥ Fmax) to base damage from previous timestep.
+        Units: dimensionless. Multiply by current Omega_base to get current damage fraction.
+    Fmin_prev : float
+        Previous timestep's Fmin value (defines Region 1/2 boundary and damage grid mapping).
+    Fmax_prev : float
+        Previous timestep's Fmax value (defines Region 2/3 boundary and damage grid mapping).
     Omega_Omega_base_ratio_prev : float
         Ratio of aggregate damage to base damage from previous timestep.
         Multiply by current Omega_base to get current aggregate damage fraction.
@@ -153,10 +202,6 @@ def calculate_tendencies(state, params, omega_yi_Omega_base_ratio_prev, Omega_Om
         Edges of quadrature intervals on [-1, 1] (length N_QUAD + 1)
     wi : np.ndarray
         Gauss-Legendre quadrature weights (length N_QUAD)
-    Fmax_prev : float, optional
-        Previous timestep's Fmax value (used as initial guess for root finding, speeds up convergence)
-    Fmin_prev : float, optional
-        Previous timestep's Fmin value (used as initial guess for root finding, speeds up convergence)
     store_detailed_output : bool, optional
         Whether to compute and return all intermediate variables. Default: True
 
@@ -268,23 +313,34 @@ def calculate_tendencies(state, params, omega_yi_Omega_base_ratio_prev, Omega_Om
     if income_dependent_damage_distribution:
         # Reconstruct damage fractions from ratios stored at previous timestep
         # Multiply stored ratios by current Omega_base to get current damage estimates
+        # Three-region structure: omega_Fmin, omega_yi, omega_Fmax
         Omega_calc = Omega_Omega_base_ratio_prev * Omega_base
+        omega_Fmin_calc = omega_Fmin_Omega_base_ratio_prev * Omega_base
         omega_yi_calc = omega_yi_Omega_base_ratio_prev * Omega_base
+        omega_Fmax_calc = omega_Fmax_Omega_base_ratio_prev * Omega_base
         # Clip scaled values to ensure they remain valid damage fractions
         Omega_calc = np.clip(Omega_calc, 0.0, 1.0 - EPSILON)
+        omega_Fmin_calc = np.clip(omega_Fmin_calc, 0.0, 1.0 - EPSILON)
         omega_yi_calc = np.clip(omega_yi_calc, 0.0, 1.0 - EPSILON)
+        omega_Fmax_calc = np.clip(omega_Fmax_calc, 0.0, 1.0 - EPSILON)
     elif income_dependent_aggregate_damage:
         # NEW CASE: Income-dependent calculation but uniform application
         # Use the aggregate damage ratio (from previous timestep) uniformly across all income groups
         Omega_calc = Omega_Omega_base_ratio_prev * Omega_base
+        omega_Fmin_calc = Omega_calc
         omega_yi_calc = np.full_like(omega_yi_Omega_base_ratio_prev, Omega_calc)
+        omega_Fmax_calc = Omega_calc
         Omega_calc = np.clip(Omega_calc, 0.0, 1.0 - EPSILON)
+        omega_Fmin_calc = np.clip(omega_Fmin_calc, 0.0, 1.0 - EPSILON)
         omega_yi_calc = np.clip(omega_yi_calc, 0.0, 1.0 - EPSILON)
+        omega_Fmax_calc = np.clip(omega_Fmax_calc, 0.0, 1.0 - EPSILON)
         # Keep y_damage_distribution_exponent for income-dependent calculation
     else:
         # No income-dependent damage at all, use temperature-based damage only
         Omega_calc = Omega_base
+        omega_Fmin_calc = Omega_base
         omega_yi_calc = np.full_like(omega_yi_Omega_base_ratio_prev, Omega_base)
+        omega_Fmax_calc = Omega_base
         y_damage_distribution_exponent = 0.0 # set damage exponent to zero if no income-dependent damage
 
     # Eq 1.1: Gross production per capita (Cobb-Douglas)
@@ -324,6 +380,10 @@ def calculate_tendencies(state, params, omega_yi_Omega_base_ratio_prev, Omega_Om
         omega_yi = np.zeros_like(xi)
         y_net_yi = np.zeros_like(xi)
         utility_yi = np.zeros_like(xi)
+        # Initialize three-region damage variables for consistency
+        omega_Fmin = 0.0
+        omega_Fmax = 0.0
+        omega_region2 = np.zeros_like(xi)
     else:
         # Economy exists - proceed with calculations
 
@@ -377,8 +437,10 @@ def calculate_tendencies(state, params, omega_yi_Omega_base_ratio_prev, Omega_Om
                 # then those below Fmin receive untaxed subsidy to reach Fmin income level
                 # This ensures continuity at Fmin (no perverse incentives)
                 Fmin = find_Fmin(1.0 - EPSILON,
-                    y_gross, gini, Omega_calc, omega_yi_calc,
-                    redistribution_amount, uniform_tax_rate, Fi_edges,
+                    y_gross, gini, Omega_calc,
+                    omega_Fmin_calc, omega_yi_calc, omega_Fmax_calc,
+                    Fmin_prev, Fmax_prev, xi_edges,
+                    redistribution_amount, uniform_tax_rate,
                     use_empirical_lorenz,
                     initial_guess=Fmin_prev,
                 )
@@ -411,8 +473,10 @@ def calculate_tendencies(state, params, omega_yi_Omega_base_ratio_prev, Omega_Om
                 # Note: find_Fmax always uses uniform_redistribution=0.0 because
                 # Fmax determines "who pays" not "how much" (that's determined by tax rates)
                 Fmax = find_Fmax(Fmin,
-                    y_gross, gini, Omega_calc, omega_yi_calc,
-                    redistribution_amount, abateCost_amount, Fi_edges,
+                    y_gross, gini, Omega_calc,
+                    omega_Fmin_calc, omega_yi_calc, omega_Fmax_calc,
+                    Fmin_prev, Fmax_prev, xi_edges,
+                    redistribution_amount, abateCost_amount,
                     use_empirical_lorenz,
                     initial_guess=Fmax_prev,
                 )
@@ -423,7 +487,15 @@ def calculate_tendencies(state, params, omega_yi_Omega_base_ratio_prev, Omega_Om
         else:
             # Uniform tax already computed
             Fmax = 1.0
-   
+
+        # Remap quadrature points to Region 2: [Fmin, Fmax]
+        if Fmax - Fmin > EPSILON:
+            Fi_region2, Fwi_region2 = remap_quadrature_to_interval(xi, wi, Fmin, Fmax)
+        else:
+            # Degenerate case: Fmin ≈ Fmax, no middle region
+            Fi_region2 = np.array([])
+            Fwi_region2 = np.array([])
+
         # Compute consumption, aggregate utility for the Fmin and Fmax region, and at each of the Gauss-Legendre quadrature nodes
         # Also calculate climate damage for next time step.
         # Divide calculation into three segments: [0, Fmin], [Fmin, Fmax], [Fmax, 1]
@@ -451,160 +523,212 @@ def calculate_tendencies(state, params, omega_yi_Omega_base_ratio_prev, Omega_Om
         utility_yi = np.zeros_like(xi)
         omega_yi = np.zeros_like(xi)
 
-        # Segment 1: Low-income earners receiving income-dependent redistribution [0, Fmin]
+        # ============================================================================
+        # Three-Region Income Distribution and Utility Calculation
+        # ============================================================================
+        # Region 1: [0, Fmin] - constant income at min_y_net
+        # Region 2: [Fmin, Fmax] - quadrature points with varying income
+        # Region 3: [Fmax, 1] - constant income at max_y_net
+
+        # Initialize damage variables (will be set in Region calculations below)
+        # Use consistent naming with omega_Fmin_calc, omega_Fmax_calc
+        omega_Fmin = 0.0
+        omega_Fmax = 0.0
+        omega_region2 = np.zeros(len(xi))
+
+        aggregate_utility = 0.0
+
+        # ------------------------------------------------------------------------
+        # Region 1: [0, Fmin] - Constant income
+        # ------------------------------------------------------------------------
         t_before_seg1 = time.time()
         if Fmin > EPSILON:
             # People below Fmin pay uniform tax on Lorenz income, then receive untaxed subsidy
             # The subsidy lifts them to the income level at Fmin
-            # This ensures continuity: no perverse incentive to be just below Fmin
             min_y_net = y_net_of_F(
                 Fmin, Fmin, Fmax,
-                y_gross, omega_yi_calc, Fi_edges,
+                y_gross,
+                omega_Fmin_calc, omega_yi_calc, omega_Fmax_calc,
+                Fmin_prev, Fmax_prev, xi_edges,
                 uniform_tax_rate, uniform_redistribution_amount, gini,
                 use_empirical_lorenz,
             )
             min_consumption = min_y_net * (1 - s)
-            omega_min = Omega_base * (min_y_net/y_net_reference)**(-y_damage_distribution_exponent)
 
-            # Calculate utility for segment 1
+            # Utility at this income level
             if eta == 1:
                 min_utility = np.log(np.maximum(min_consumption, EPSILON))
             else:
                 min_utility = (np.maximum(min_consumption, EPSILON) ** (1 - eta)) / (1 - eta)
 
-            # Set y_net_yi, omega_yi, and utility_yi for bins below/containing Fmin
-            for i in range(len(Fi_edges) - 1):
-                if Fi_edges[i+1] <= Fmin:
-                    # Bin completely below Fmin
-                    y_net_yi[i] = min_y_net
-                    omega_yi[i] = omega_min
-                    utility_yi[i] = min_utility
-                elif Fi_edges[i] < Fmin <= Fi_edges[i+1]:
-                    # Bin containing Fmin - weight by fraction below Fmin
-                    fraction_below = (Fmin - Fi_edges[i]) / Fwi[i]
-                    y_net_yi[i] = min_y_net * fraction_below
-                    omega_yi[i] = omega_min * fraction_below
-                    utility_yi[i] = min_utility * fraction_below
+            # Damage at this income level (for next timestep)
+            omega_Fmin = Omega_base * (min_y_net / y_net_reference) ** (-y_damage_distribution_exponent)
+            omega_Fmin = np.clip(omega_Fmin, 0.0, 1.0 - EPSILON)
+
+            # Contribution to aggregate utility (analytical: constant × width)
+            aggregate_utility += Fmin * min_utility
+        else:
+            min_y_net = 0.0
+            omega_Fmin = 0.0
+            min_utility = NEG_BIGNUM
 
         _timing_stats['segment1_time'] += time.time() - t_before_seg1
 
-        # Segment 3: High-income earners paying income-dependent tax [Fmax, 1]
+        # ------------------------------------------------------------------------
+        # Region 3: [Fmax, 1] - Constant income
+        # ------------------------------------------------------------------------
         t_before_seg3 = time.time()
         if 1.0 - Fmax > EPSILON:
+            # People above Fmax pay progressive tax on income above Fmax level
             max_y_net = y_net_of_F(
                 Fmax, Fmin, Fmax,
-                y_gross, omega_yi_calc, Fi_edges,
+                y_gross,
+                omega_Fmin_calc, omega_yi_calc, omega_Fmax_calc,
+                Fmin_prev, Fmax_prev, xi_edges,
                 uniform_tax_rate, uniform_redistribution_amount, gini,
                 use_empirical_lorenz,
             )
             max_consumption = max_y_net * (1 - s)
-            omega_max = Omega_base * (max_y_net/y_net_reference)**(-y_damage_distribution_exponent)
 
-            # Calculate utility for segment 3
+            # Utility at this income level
             if eta == 1:
                 max_utility = np.log(np.maximum(max_consumption, EPSILON))
             else:
                 max_utility = (np.maximum(max_consumption, EPSILON) ** (1 - eta)) / (1 - eta)
 
-            # Set y_net_yi, omega_yi, and utility_yi for bins above/containing Fmax
-            for i in range(len(Fi_edges) - 1):
-                if Fi_edges[i] >= Fmax:
-                    # Bin completely above Fmax
-                    y_net_yi[i] = max_y_net
-                    omega_yi[i] = omega_max
-                    utility_yi[i] = max_utility
-                elif Fi_edges[i] < Fmax <= Fi_edges[i+1]:
-                    # Bin containing Fmax - weight by fraction above Fmax
-                    fraction_above = (Fi_edges[i+1] - Fmax) / Fwi[i]
-                    y_net_yi[i] = max_y_net * fraction_above
-                    omega_yi[i] = omega_max * fraction_above
-                    utility_yi[i] = max_utility * fraction_above
+            # Damage at this income level (for next timestep)
+            omega_Fmax = Omega_base * (max_y_net / y_net_reference) ** (-y_damage_distribution_exponent)
+            omega_Fmax = np.clip(omega_Fmax, 0.0, 1.0 - EPSILON)
+
+            # Contribution to aggregate utility (analytical: constant × width)
+            aggregate_utility += (1.0 - Fmax) * max_utility
+        else:
+            max_y_net = 0.0
+            omega_Fmax = 0.0
+            max_utility = NEG_BIGNUM
 
         _timing_stats['segment3_time'] += time.time() - t_before_seg3
 
-        # Segment 2: Middle-income earners with uniform redistribution/tax [Fmin, Fmax]
+        # ------------------------------------------------------------------------
+        # Region 2: [Fmin, Fmax] - Quadrature integration
+        # ------------------------------------------------------------------------
         t_before_seg2 = time.time()
-        if Fmax - Fmin > EPSILON:
-            # Calculate y_net for each bin in the middle segment
-            y_vals_Fi = y_net_of_F(
-                Fi, Fmin, Fmax,
-                y_gross, omega_yi_calc, Fi_edges,
+        if Fmax - Fmin > EPSILON and len(Fi_region2) > 0:
+            # Evaluate income at each remapped quadrature point
+            y_net_region2 = y_net_of_F(
+                Fi_region2, Fmin, Fmax,
+                y_gross,
+                omega_Fmin_calc, omega_yi_calc, omega_Fmax_calc,
+                Fmin_prev, Fmax_prev, xi_edges,
                 uniform_tax_rate, uniform_redistribution_amount, gini,
                 use_empirical_lorenz,
             )
 
-            # Calculate climate damage at quadrature points for next timestep
-            if np.abs(y_damage_distribution_exponent) < EPSILON:
-                # Uniform damage
-                omega_yi_mid = np.full_like(y_vals_Fi, Omega_base)
-            else:
-                # Income-dependent damage
-                omega_yi_mid = Omega_base * (y_vals_Fi / y_net_reference) ** (-y_damage_distribution_exponent)
-
-            # Calculate consumption and utility for middle segment
-            consumption_vals = y_vals_Fi * (1 - s)
+            # Compute consumption and utility
+            consumption_region2 = y_net_region2 * (1 - s)
             if eta == 1:
-                utility_vals = np.log(np.maximum(consumption_vals, EPSILON))
+                utility_region2 = np.log(np.maximum(consumption_region2, EPSILON))
             else:
-                utility_vals = (np.maximum(consumption_vals, EPSILON) ** (1 - eta)) / (1 - eta)
+                utility_region2 = (np.maximum(consumption_region2, EPSILON) ** (1 - eta)) / (1 - eta)
 
-            # Set y_net_yi, omega_yi, and utility_yi for bins in [Fmin, Fmax]
-            for i in range(len(Fi_edges) - 1):
-                if Fi_edges[i] >= Fmin and Fi_edges[i+1] <= Fmax:
-                    # Bin completely within [Fmin, Fmax]
-                    y_net_yi[i] = y_vals_Fi[i]
-                    omega_yi[i] = omega_yi_mid[i]
-                    utility_yi[i] = utility_vals[i]
-                elif Fi_edges[i] < Fmin <= Fi_edges[i+1] < Fmax:
-                    # Bin contains Fmin - add weighted contribution for part above Fmin
-                    fraction_above = (Fi_edges[i+1] - Fmin) / Fwi[i]
-                    y_net_yi[i] += y_vals_Fi[i] * fraction_above
-                    omega_yi[i] += omega_yi_mid[i] * fraction_above
-                    utility_yi[i] += utility_vals[i] * fraction_above
-                elif Fmin < Fi_edges[i] < Fmax <= Fi_edges[i+1]:
-                    # Bin contains Fmax - add weighted contribution for part below Fmax
-                    fraction_below = (Fmax - Fi_edges[i]) / Fwi[i]
-                    y_net_yi[i] += y_vals_Fi[i] * fraction_below
-                    omega_yi[i] += omega_yi_mid[i] * fraction_below
-                    utility_yi[i] += utility_vals[i] * fraction_below
-                elif Fi_edges[i] < Fmin and Fmax <= Fi_edges[i+1]:
-                    # Bin contains both Fmin and Fmax - only the middle part
-                    fraction_middle = (Fmax - Fmin) / Fwi[i]
-                    y_net_yi[i] += y_vals_Fi[i] * fraction_middle
-                    omega_yi[i] += omega_yi_mid[i] * fraction_middle
-                    utility_yi[i] += utility_vals[i] * fraction_middle
+            # Compute damage for next timestep
+            if np.abs(y_damage_distribution_exponent) < EPSILON:
+                omega_region2 = np.full_like(y_net_region2, Omega_base)
+            else:
+                omega_region2 = Omega_base * (y_net_region2 / y_net_reference) ** (-y_damage_distribution_exponent)
+            omega_region2 = np.clip(omega_region2, 0.0, 1.0 - EPSILON)
+
+            # Contribution to aggregate utility (quadrature sum)
+            aggregate_utility += np.sum(Fwi_region2 * utility_region2)
+        else:
+            # No Region 2 (Fmin ≈ Fmax), use constant damage equal to value at Fmin
+            omega_region2 = np.ones(len(xi)) * omega_Fmin
 
         _timing_stats['segment2_time'] += time.time() - t_before_seg2
 
-        # Calculate aggregate utility by summing over all bins
-        aggregate_utility = np.sum(Fwi * utility_yi)
+        # ------------------------------------------------------------------------
+        # Assign Region 2 arrays directly (no mapping back to [0,1] grid)
+        # ------------------------------------------------------------------------
+        # omega_yi, y_net_yi, utility_yi represent ONLY Region 2 values
+        # (always length n_quad, mapped to [Fmin, Fmax] interval for this timestep)
+        # The three-region structure is used directly for aggregate calculations
+
+        if len(Fi_region2) > 0:
+            y_net_yi = y_net_region2
+            omega_yi = omega_region2
+            utility_yi = utility_region2
+        else:
+            # Degenerate case: no Region 2 (Fmin ≈ Fmax)
+            y_net_yi = np.ones(len(xi)) * min_y_net
+            omega_yi = np.ones(len(xi)) * omega_Fmin
+            utility_yi = np.ones(len(xi)) * min_utility
+
+        # ------------------------------------------------------------------------
+        # Compute aggregate damage using three-region structure
+        # ------------------------------------------------------------------------
+        # Region contributions to income and damage
+        y_net_Fmin = min_y_net if Fmin > EPSILON else 0.0
+        y_net_Fmax = max_y_net if 1.0 - Fmax > EPSILON else 0.0
+
+        income_region1 = Fmin * y_net_Fmin
+        income_region2 = np.sum(Fwi_region2 * y_net_region2) if len(Fwi_region2) > 0 else 0.0
+        income_region3 = (1.0 - Fmax) * y_net_Fmax
+
+        damage_region1 = Fmin * y_net_Fmin * omega_Fmin
+        damage_region2 = np.sum(Fwi_region2 * y_net_region2 * omega_region2) if len(Fwi_region2) > 0 else 0.0
+        damage_region3 = (1.0 - Fmax) * y_net_Fmax * omega_Fmax
+
+        total_income = income_region1 + income_region2 + income_region3
+        total_damage = damage_region1 + damage_region2 + damage_region3
 
         if income_dependent_aggregate_damage and not income_dependent_damage_distribution:
-            # NEW CASE: Calculate GDP-weighted mean damage and apply uniformly
-            # omega_yi currently contains income-dependent damage at each point
-            # Calculate the GDP-weighted mean across all income groups
-            y_net_aggregate = np.sum(Fwi * y_net_yi)
-            if y_net_aggregate > 0:
-                omega_mean = np.sum(Fwi * y_net_yi * omega_yi) / y_net_aggregate
-                # Apply the mean damage uniformly to all income groups
-                omega_yi[:] = omega_mean
+            # Calculate GDP-weighted mean damage across all three regions and apply uniformly
+            if total_income > EPSILON:
+                omega_mean = total_damage / total_income
+                # Apply uniformly to all three regions
+                omega_Fmin = omega_mean
+                omega_region2[:] = omega_mean
+                omega_Fmax = omega_mean
+                omega_yi = omega_region2  # Update omega_yi to reflect the uniform damage
+                # Recalculate damage with uniform omega
+                damage_region1 = income_region1 * omega_mean
+                damage_region2 = income_region2 * omega_mean
+                damage_region3 = income_region3 * omega_mean
+                total_damage = damage_region1 + damage_region2 + damage_region3
             else:
-                # If no income, set damage to zero
-                omega_yi[:] = 0.0
+                omega_Fmin = 0.0
+                omega_region2[:] = 0.0
+                omega_Fmax = 0.0
+                omega_yi = omega_region2
+                total_damage = 0.0
+
         elif not income_dependent_aggregate_damage and income_dependent_damage_distribution:
-            # Only rescale if we have income-dependent distribution but want aggregate to match temperature-based damage
-            # Rescale to match Omega_base * y_net (consistent with uniform distribution case)
-            # total_climate_damage_pre_scale = sum of (damage_fraction * income) across all groups
-            total_climate_damage_pre_scale = np.sum(Fwi * y_net_yi * omega_yi)
-            y_net_aggregate = np.sum(Fwi * y_net_yi)
-            if total_climate_damage_pre_scale > 0 and y_net_aggregate > 0:
-                omega_yi = omega_yi * (Omega_base * y_net_aggregate) / total_climate_damage_pre_scale
+            # Rescale damage distribution to match Omega_base
+            if total_damage > EPSILON and total_income > EPSILON:
+                target_total_damage = Omega_base * total_income
+                scale_factor = target_total_damage / total_damage
+                # Apply scaling to all three regions
+                omega_Fmin *= scale_factor
+                omega_region2 *= scale_factor
+                omega_Fmax *= scale_factor
+                omega_yi = omega_region2  # Update omega_yi
+                # Recalculate damage after scaling
+                damage_region1 = income_region1 * omega_Fmin
+                damage_region2 = np.sum(Fwi_region2 * y_net_region2 * omega_region2) if len(Fwi_region2) > 0 else 0.0
+                damage_region3 = income_region3 * omega_Fmax
+                total_damage = damage_region1 + damage_region2 + damage_region3
 
-        # Clip omega_yi to valid range [0.0, 1.0 - EPSILON] since damage fractions cannot exceed 100%
-        omega_yi = np.clip(omega_yi, 0.0, 1.0 - EPSILON)
+        # Clip damage fractions to valid range [0.0, 1.0 - EPSILON]
+        omega_Fmin = np.clip(omega_Fmin, 0.0, 1.0 - EPSILON)
+        omega_region2 = np.clip(omega_region2, 0.0, 1.0 - EPSILON)
+        omega_Fmax = np.clip(omega_Fmax, 0.0, 1.0 - EPSILON)
+        omega_yi = omega_region2  # Keep omega_yi in sync
 
-        # Calculate aggregate damage fraction as weighted average across income distribution
-        Omega = np.sum(Fwi * y_net_yi * omega_yi) / np.sum(Fwi * y_net_yi)  # Weighted average of damage fractions (dimensionless)
+        # Calculate final aggregate damage fraction
+        if total_income > EPSILON:
+            Omega = total_damage / total_income
+        else:
+            Omega = 0.0
 
     #========================================================================================
     # mitigation carbon climate
@@ -677,14 +801,20 @@ def calculate_tendencies(state, params, omega_yi_Omega_base_ratio_prev, Omega_Om
 
     # Always return climate damage ratios for use in next time step
     # Store ratios of damage to base damage, so next timestep can scale by new Omega_base
+    # Three-region structure: omega_Fmin (Region 1), omega_region2 (Region 2), omega_Fmax (Region 3)
     if Omega_base > EPSILON:
-        results['omega_yi_Omega_base_ratio'] = omega_yi / Omega_base
+        results['omega_Fmin_Omega_base_ratio'] = omega_Fmin / Omega_base
+        results['omega_yi_Omega_base_ratio'] = omega_region2 / Omega_base
+        results['omega_Fmax_Omega_base_ratio'] = omega_Fmax / Omega_base
         results['Omega_Omega_base_ratio'] = Omega / Omega_base
     else:
-        results['omega_yi_Omega_base_ratio'] = np.zeros_like(omega_yi)
+        results['omega_Fmin_Omega_base_ratio'] = 0.0
+        results['omega_yi_Omega_base_ratio'] = np.zeros(len(xi))  # FIXED length n_quad
+        results['omega_Fmax_Omega_base_ratio'] = 0.0
         results['Omega_Omega_base_ratio'] = 0.0
-    results['Fmax'] = Fmax  # Store maximum income rank for next timestep's initial guess
-    results['Fmin'] = Fmin  # Store minimum income rank for next timestep's initial guess
+    # Store region boundaries (defines the mapping for omega_yi to F space)
+    results['Fmax'] = Fmax
+    results['Fmin'] = Fmin
 
     t_end = time.time()
     _timing_stats['total_time'] += t_end - t_start
@@ -753,12 +883,15 @@ def integrate_model(config, store_detailed_output=True):
     xi_edges = np.concatenate(([-1.0], -1.0 + np.cumsum(wi)))  # length n_quad + 1
 
     # Initialize climate damage ratios for first timestep
-    omega_yi_Omega_base_ratio_prev = np.ones(n_quad)  # Ratio of damage to base damage at quadrature points
+    # Three-region structure: uniform damage across all regions initially
+    omega_Fmin_Omega_base_ratio_prev = 1.0  # Ratio of damage to base damage for F <= Fmin (Region 1)
+    omega_yi_Omega_base_ratio_prev = np.ones(n_quad)  # Ratio of damage to base damage at quadrature points (Region 2) - FIXED length n_quad
+    omega_Fmax_Omega_base_ratio_prev = 1.0  # Ratio of damage to base damage for F >= Fmax (Region 3)
     Omega_Omega_base_ratio_prev = 1.0  # Ratio of aggregate damage to base damage
 
-    # Initialize Fmax and Fmin from previous timestep (None for first timestep)
-    Fmax_prev = None
-    Fmin_prev = None
+    # Initialize previous region boundaries (full range [0,1] for first timestep)
+    Fmin_prev = 0.0
+    Fmax_prev = 1.0
 
     # take abatement cost and initial climate damage into account for initial capital
     state = {
@@ -837,9 +970,13 @@ def integrate_model(config, store_detailed_output=True):
             results['params_list'].append(params)
 
         # Calculate all variables and tendencies at current time
-        # Pass damage ratios from previous timestep to use lagged damage (avoids circular dependency)
-        # Pass Fmax_prev and Fmin_prev to speed up root finding
-        outputs = calculate_tendencies(state, params, omega_yi_Omega_base_ratio_prev, Omega_Omega_base_ratio_prev, xi, xi_edges, wi, Fmax_prev, Fmin_prev, store_detailed_output)
+        # Pass three-region damage ratios from previous timestep to use lagged damage (avoids circular dependency)
+        # Pass Fmax_prev and Fmin_prev for damage lookup transformation
+        outputs = calculate_tendencies(state, params,
+                                      omega_Fmin_Omega_base_ratio_prev, omega_yi_Omega_base_ratio_prev, omega_Fmax_Omega_base_ratio_prev,
+                                      Fmin_prev, Fmax_prev,
+                                      Omega_Omega_base_ratio_prev,
+                                      xi, xi_edges, wi, store_detailed_output)
 
         # Always store variables needed for objective function
         results['U'][i] = outputs['U']
@@ -904,13 +1041,15 @@ def integrate_model(config, store_detailed_output=True):
             # do not allow cumulative emissions to go negative, making it colder than the initial condition
             state['Ecum'] = max(0.0, state['Ecum'] + dt * outputs['dEcum_dt'])
 
-            # Update climate damage ratios for next time step (lagged damage approach)
-            omega_yi_Omega_base_ratio_prev = outputs['omega_yi_Omega_base_ratio']
+            # Update three-region damage ratios for next time step (lagged damage approach)
+            omega_Fmin_Omega_base_ratio_prev = outputs['omega_Fmin_Omega_base_ratio']
+            omega_yi_Omega_base_ratio_prev = outputs['omega_yi_Omega_base_ratio']  # FIXED length n_quad
+            omega_Fmax_Omega_base_ratio_prev = outputs['omega_Fmax_Omega_base_ratio']
             Omega_Omega_base_ratio_prev = outputs['Omega_Omega_base_ratio']
 
-            # Update Fmax and Fmin for next time step (speeds up root finding)
-            Fmax_prev = outputs.get('Fmax')
-            Fmin_prev = outputs.get('Fmin')
+            # Update region boundaries for next time step (defines mapping for damage lookup)
+            Fmin_prev = outputs['Fmin']
+            Fmax_prev = outputs['Fmax']
 
     # Print final timing statistics only when called directly (not during optimization)
     # print_timing_stats()
@@ -1004,18 +1143,45 @@ def create_derived_variables(results):
     delta_gini_utility = np.zeros(n_steps)
 
     # Extract distribution info from results
-    y_net_yi = results['y_net_yi']
+    y_net_yi_region2 = results['y_net_yi']  # Region 2 values only (length n_quad)
+    min_y_net_array = results['min_y_net']   # Region 1 constant income
+    max_y_net_array = results['max_y_net']   # Region 3 constant income
+    Fmin_array = results['Fmin']
+    Fmax_array = results['Fmax']
     Fi_edges = results['Fi_edges']
     Fwi = results['Fwi']
+    Fi = (Fi_edges[:-1] + Fi_edges[1:]) / 2.0  # Midpoints of bins
 
     for i in range(n_steps):
         s_i = s_array[i]
         eta_i = eta_array[i]
         gini_i = gini_array[i]
-        y_net_yi_i = y_net_yi[i, :]
+
+        # Reconstruct full distribution from three-region structure
+        Fmin_i = Fmin_array[i]
+        Fmax_i = Fmax_array[i]
+        min_y_net_i = min_y_net_array[i]
+        max_y_net_i = max_y_net_array[i]
+        y_net_region2_i = y_net_yi_region2[i, :]
+
+        # Map Region 2 values back to standard [0,1] grid for Gini calculation
+        y_net_yi_full = np.zeros(len(Fi))
+        for j, F in enumerate(Fi):
+            if F <= Fmin_i:
+                y_net_yi_full[j] = min_y_net_i
+            elif F >= Fmax_i:
+                y_net_yi_full[j] = max_y_net_i
+            else:
+                # Interpolate from Region 2 values
+                # Transform F to region2 index using linear mapping
+                x = (F - Fmin_i) / (Fmax_i - Fmin_i) if Fmax_i > Fmin_i else 0.0
+                # Map to quadrature index (approximate)
+                idx = int(x * (len(y_net_region2_i) - 1))
+                idx = np.clip(idx, 0, len(y_net_region2_i) - 1)
+                y_net_yi_full[j] = y_net_region2_i[idx]
 
         # Calculate consumption_yi from y_net_yi
-        consumption_yi_i = y_net_yi_i * (1.0 - s_i)
+        consumption_yi_i = y_net_yi_full * (1.0 - s_i)
 
         # Calculate Gini coefficient for consumption
         if y_gross[i] > EPSILON:
