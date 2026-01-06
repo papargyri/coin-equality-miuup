@@ -288,6 +288,53 @@ Notes:
 
 All overrides are applied to every configuration file matched by the patterns.
 
+### Testing Policy Flag Independence
+
+The model includes test scripts to verify that different policy flag combinations produce identical climate and economic outcomes when using the same control trajectories (f and s). This validates that aggregate climate-economy dynamics are independent of distributional policy choices.
+
+#### test_all_flag_variants.py
+
+Test all 16 variants of the *-f-*-*-* flag pattern (fixing `income_dependent_aggregate_damage` to false):
+
+```bash
+python test_all_flag_variants.py data/output/config_010_f-f-f-f-f_10_0.02_1000_el_20260106-070053
+```
+
+This script:
+1. Loads optimized control trajectories (f and s) from the base directory
+2. Runs 16 flag combinations (2^4 variants):
+   - Position 1: `income_dependent_damage_distribution` (varies)
+   - Position 2: `income_dependent_aggregate_damage` (fixed to false)
+   - Position 3: `income_dependent_tax_policy` (varies)
+   - Position 4: `income_redistribution` (varies)
+   - Position 5: `income_dependent_redistribution_policy` (varies)
+3. Compares results across all variants
+
+**Expected outcomes**:
+- **Climate and economic variables** should be identical (within ~1e-6 relative tolerance)
+  - Capital (K), Output (Y_gross, Y_net), Consumption, Savings, Emissions (E), Temperature (delta_T)
+  - Small differences (<0.0002%) arise from O(dt) numerical coupling between income and damage distributions
+- **Distribution-dependent variables** should differ appropriately
+  - Utility (U), Gini coefficients, income rank boundaries (Fmin/Fmax)
+  - These differences confirm that policy flags correctly modify distributional outcomes
+
+#### Why Small Differences Occur (O(dt) Coupling)
+
+The lag-1 coupling between income and damage distributions causes tiny differences (~1e-6) in aggregate variables:
+
+At each timestep:
+1. Income distribution depends on damage distribution (from previous timestep)
+2. Damage distribution depends on income distribution (computed at current timestep)
+
+This circular dependency is broken using a lag-1 approach: damage from timestep t determines income at timestep t+1. Different policy flags → slightly different damage distributions → slightly different capital accumulation over 400 years → tiny drift in emissions and temperature.
+
+These O(dt) differences are:
+- **Expected and unavoidable** given the model structure
+- **Negligible** compared to parameter uncertainties (6 orders of magnitude smaller)
+- **Within acceptable tolerance** for climate-economy models
+
+The test validates that policy choices affect distribution without materially changing aggregate climate-economy outcomes.
+
 ## Project Structure
 
 ```
@@ -303,10 +350,13 @@ coin_equality/
 ├── output.py                          # Output generation (CSV and PDF)
 ├── test_integration.py                # Test script for forward integration
 ├── run_optimization.py                # Main optimization script
+├── run_integration.py                 # Run forward integration from optimization results
 ├── run_parallel.py                    # Launch multiple optimizations in parallel
 ├── compare_results.py                 # Compare multiple optimization runs
 ├── comparison_utils.py                # Multi-run comparison utilities
 ├── visualization_utils.py             # Unified visualization functions
+├── test_all_flag_variants.py          # Test policy flag independence
+├── plot_utility_ratios.py             # Generate utility ratio diagnostic plots
 ├── test_f-f-f-t-t.json                # Example configuration file
 ├── test_f-f-f-t-f.json                # Example configuration file
 ├── data/output/                       # Output directory (timestamped subdirs)
