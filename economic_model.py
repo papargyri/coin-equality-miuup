@@ -1150,6 +1150,7 @@ def create_derived_variables(results):
     Fmax_array = results['Fmax']
     Fi_edges = results['Fi_edges']
     Fwi = results['Fwi']
+    xi_edges = results['xi_edges']  # Quadrature bin edges in xi space [-1, 1]
     Fi = (Fi_edges[:-1] + Fi_edges[1:]) / 2.0  # Midpoints of bins
 
     for i in range(n_steps):
@@ -1165,6 +1166,7 @@ def create_derived_variables(results):
         y_net_region2_i = y_net_yi_region2[i, :]
 
         # Map Region 2 values back to standard [0,1] grid for Gini calculation
+        # Use smooth interpolation to avoid discrete jumps when Fmax changes
         y_net_yi_full = np.zeros(len(Fi))
         for j, F in enumerate(Fi):
             if F <= Fmin_i:
@@ -1172,13 +1174,13 @@ def create_derived_variables(results):
             elif F >= Fmax_i:
                 y_net_yi_full[j] = max_y_net_i
             else:
-                # Interpolate from Region 2 values
-                # Transform F to region2 index using linear mapping
+                # Interpolate from Region 2 values using smooth interpolation
+                # Transform F to normalized coordinate x ∈ [0, 1] within [Fmin, Fmax]
                 x = (F - Fmin_i) / (Fmax_i - Fmin_i) if Fmax_i > Fmin_i else 0.0
-                # Map to quadrature index (approximate)
-                idx = int(x * (len(y_net_region2_i) - 1))
-                idx = np.clip(idx, 0, len(y_net_region2_i) - 1)
-                y_net_yi_full[j] = y_net_region2_i[idx]
+                # Transform x to xi coordinate ∈ [-1, 1]
+                xi = 2.0 * x - 1.0
+                # Use stepwise interpolation on the quadrature grid
+                y_net_yi_full[j] = stepwise_interpolate(xi, y_net_region2_i, xi_edges)
 
         # Calculate consumption_yi from y_net_yi
         consumption_yi_i = y_net_yi_full * (1.0 - s_i)

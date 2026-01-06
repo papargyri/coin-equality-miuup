@@ -109,13 +109,12 @@ def find_files_in_output_dir(output_dir):
         print(f"Using: {json_files[0].name}")
     config_path = json_files[0]
 
-    # Find results CSV file (not optimization_summary.csv)
-    csv_files = [f for f in output_path.glob('*_results.csv')
-                 if 'optimization' not in f.name]
+    # Find results CSV file (want *_results.csv, not *_summary.csv)
+    csv_files = [f for f in output_path.glob('*_results.csv')]
     if len(csv_files) == 0:
-        # Try without _results suffix
+        # Try without _results suffix but exclude summary files
         csv_files = [f for f in output_path.glob('*.csv')
-                     if 'optimization' not in f.name and 'summary' not in f.name]
+                     if 'summary' not in f.name]
 
     if len(csv_files) == 0:
         raise FileNotFoundError(f"No results CSV file found in {output_dir}")

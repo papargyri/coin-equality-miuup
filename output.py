@@ -63,6 +63,7 @@ VARIABLE_GROUPS = {
         {'type': 'single', 'variables': ['mu']},
         {'type': 'combined', 'title': 'Economic Impact Fractions', 'variables': ['Omega', 'Lambda'], 'units': 'fraction'},
         {'type': 'single', 'variables': ['Gini']},
+        {'type': 'combined', 'title': 'Income Rank Boundaries', 'variables': ['Fmin', 'Fmax'], 'units': 'rank'},
         {'type': 'single', 'variables': ['U']},
         {'type': 'single', 'variables': ['r_consumption']}
     ],
