@@ -6,18 +6,23 @@ then runs a forward simulation with those exact controls. Useful for debugging
 and verifying optimization results.
 
 Usage:
-    python run_integration.py <output_directory>
+    python run_integration.py <output_directory> [--param.path value ...]
 
 Arguments:
     output_directory: Path to optimization output directory containing JSON config
                      and results CSV file
+    --param.path value: Override configuration parameters (e.g., --scalar_parameters.eta 1.45)
 
 Example:
     python run_integration.py data/output/config_010_t-t-t-f-f_10_1_1000_el_20260105-165554
+    python run_integration.py data/output/config_010_f-f-f-f-f_10_1_1000_el_20260105-165554 --scalar_parameters.income_redistribution true
 """
 
 import sys
 import os
+import json
+import argparse
+import tempfile
 import numpy as np
 import pandas as pd
 from pathlib import Path
@@ -25,6 +30,126 @@ from parameters import load_configuration, ModelConfiguration
 from economic_model import integrate_model, create_derived_variables
 from output import save_results
 from scipy.interpolate import PchipInterpolator
+
+
+def apply_config_override(config_dict, key_path, value):
+    """
+    Apply a command line override to a nested configuration dictionary.
+
+    Parameters
+    ----------
+    config_dict : dict
+        The configuration dictionary to modify
+    key_path : str
+        Dot-separated path to the key (e.g., "scalar_parameters.alpha")
+    value : str
+        String value to set (will be converted to appropriate type)
+    """
+    keys = key_path.split('.')
+
+    # Navigate to the parent dict
+    current = config_dict
+    for key in keys[:-1]:
+        if key not in current:
+            raise KeyError(f"Key path '{key_path}' not found in config (failed at '{key}')")
+        current = current[key]
+
+    final_key = keys[-1]
+    if final_key not in current:
+        raise KeyError(f"Key path '{key_path}' not found in config (final key '{final_key}' not found)")
+
+    # Infer type from existing value
+    existing_value = current[final_key]
+
+    try:
+        if existing_value is None:
+            # If existing is None, try int -> float -> bool -> string
+            try:
+                converted_value = int(value)
+            except ValueError:
+                try:
+                    converted_value = float(value)
+                except ValueError:
+                    if value.lower() in ('true', 'false'):
+                        converted_value = value.lower() == 'true'
+                    else:
+                        converted_value = value
+        elif isinstance(existing_value, bool):
+            # Handle bools before int (since bool is subclass of int in Python)
+            converted_value = value.lower() in ('true', '1', 'yes')
+        elif isinstance(existing_value, int):
+            converted_value = int(value)
+        elif isinstance(existing_value, float):
+            converted_value = float(value)
+        elif isinstance(existing_value, str):
+            converted_value = value
+        elif isinstance(existing_value, (list, dict)):
+            # Try to parse as JSON for lists and dicts
+            converted_value = json.loads(value)
+        else:
+            # Fallback: keep as string
+            converted_value = value
+    except (ValueError, json.JSONDecodeError) as e:
+        raise ValueError(f"Cannot convert '{value}' to type {type(existing_value).__name__} for key '{key_path}': {e}")
+
+    current[final_key] = converted_value
+    print(f"Override: {key_path} = {converted_value} (was {existing_value})")
+
+
+def parse_arguments():
+    """
+    Parse command line arguments including output directory and overrides.
+
+    Returns
+    -------
+    tuple
+        (output_dir, overrides_dict) where overrides_dict maps key paths to values
+    """
+    parser = argparse.ArgumentParser(
+        description='Run forward integration with optional parameter overrides',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  python run_integration.py data/output/config_010_f-f-f-f-f_10_1_1000_el_20260105-165554
+  python run_integration.py data/output/config_010_f-f-f-f-f_10_1_1000_el_20260105-165554 --scalar_parameters.income_redistribution true
+  python run_integration.py data/output/config_010_f-f-f-f-f_10_1_1000_el_20260105-165554 --scalar_parameters.eta 1.45 --run_name "test_run"
+
+Override format:
+  --key.subkey.subsubkey value
+
+Common overrides:
+  --run_name <name>
+  --scalar_parameters.income_dependent_damage_distribution <true/false>
+  --scalar_parameters.income_dependent_tax_policy <true/false>
+  --scalar_parameters.income_redistribution <true/false>
+  --scalar_parameters.income_dependent_redistribution_policy <true/false>
+  --scalar_parameters.eta <value>
+  --scalar_parameters.rho <value>
+        """
+    )
+
+    parser.add_argument('output_directory', help='Path to optimization output directory')
+
+    # Use parse_known_args to allow arbitrary --key value pairs
+    args, unknown = parser.parse_known_args()
+
+    # Parse overrides from unknown arguments
+    overrides = {}
+    i = 0
+    while i < len(unknown):
+        arg = unknown[i]
+        if arg.startswith('--'):
+            key = arg[2:]  # Remove '--' prefix
+            if i + 1 < len(unknown) and not unknown[i + 1].startswith('--'):
+                value = unknown[i + 1]
+                overrides[key] = value
+                i += 2
+            else:
+                raise ValueError(f"Override '{arg}' requires a value")
+        else:
+            raise ValueError(f"Unexpected argument '{arg}'. Overrides must start with '--'")
+
+    return args.output_directory, overrides
 
 
 def load_control_trajectory_from_csv(csv_path):
@@ -129,13 +254,8 @@ def find_files_in_output_dir(output_dir):
 
 
 def main():
-    # Get output directory from command line (required)
-    if len(sys.argv) != 2:
-        print("Usage: python run_integration.py <output_directory>")
-        print("Example: python run_integration.py data/output/config_010_t-t-t-f-f_10_1_1000_el_20260105-165554")
-        sys.exit(1)
-
-    output_dir = sys.argv[1]
+    # Parse command line arguments
+    output_dir, overrides = parse_arguments()
 
     if not os.path.isdir(output_dir):
         print(f"Error: Directory not found: {output_dir}")
@@ -152,9 +272,32 @@ def main():
     print(f'  Config file: {os.path.basename(config_path)}')
     print(f'  Results CSV: {os.path.basename(csv_path)}')
 
-    # Load configuration
-    print(f'\nLoading configuration...')
-    config = load_configuration(config_path)
+    # Load base configuration from JSON file
+    with open(config_path, 'r') as f:
+        config_dict = json.load(f)
+
+    # Apply command line overrides
+    if overrides:
+        print(f'\n' + '=' * 80)
+        print('APPLYING COMMAND LINE OVERRIDES')
+        print('=' * 80)
+        for key_path, value in overrides.items():
+            apply_config_override(config_dict, key_path, value)
+
+    # Create configuration object from modified dict
+    # Save modified dict to temp file for load_configuration to process
+    with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as tmp:
+        json.dump(config_dict, tmp, indent=2)
+        tmp_path = tmp.name
+
+    try:
+        config = load_configuration(tmp_path)
+    finally:
+        os.unlink(tmp_path)
+
+    print(f'\n' + '=' * 80)
+    print('CONFIGURATION')
+    print('=' * 80)
     print(f'  Run name: {config.run_name}')
     print(f'  Time span: {config.integration_params.t_start} to {config.integration_params.t_end} yr')
     print(f'  Time step: {config.integration_params.dt} yr')
