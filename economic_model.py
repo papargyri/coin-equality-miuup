@@ -112,12 +112,15 @@ _timing_stats = {
     'call_count': 0,
     'total_time': 0.0,
     'setup_time': 0.0,
+    'policy_calc_time': 0.0,
     'find_Fmax_time': 0.0,
     'find_Fmin_time': 0.0,
     'segment1_time': 0.0,
     'segment2_time': 0.0,
     'segment3_time': 0.0,
     'utility_time': 0.0,
+    'damage_agg_time': 0.0,
+    'climate_time': 0.0,
     'finalize_time': 0.0,
 }
 
@@ -132,12 +135,15 @@ def print_timing_stats():
     print(f"{'='*80}")
     print(f"Total time:          {stats['total_time']:8.2f} s  (100.0%)")
     print(f"  Setup:             {stats['setup_time']:8.2f} s  ({100*stats['setup_time']/stats['total_time']:5.1f}%)")
-    print(f"  find_Fmax:         {stats['find_Fmax_time']:8.2f} s  ({100*stats['find_Fmax_time']/stats['total_time']:5.1f}%)")
-    print(f"  find_Fmin:         {stats['find_Fmin_time']:8.2f} s  ({100*stats['find_Fmin_time']/stats['total_time']:5.1f}%)")
+    print(f"  Policy calc:       {stats['policy_calc_time']:8.2f} s  ({100*stats['policy_calc_time']/stats['total_time']:5.1f}%)")
+    print(f"    find_Fmax:       {stats['find_Fmax_time']:8.2f} s  ({100*stats['find_Fmax_time']/stats['total_time']:5.1f}%)")
+    print(f"    find_Fmin:       {stats['find_Fmin_time']:8.2f} s  ({100*stats['find_Fmin_time']/stats['total_time']:5.1f}%)")
     print(f"  Segment 1:         {stats['segment1_time']:8.2f} s  ({100*stats['segment1_time']/stats['total_time']:5.1f}%)")
     print(f"  Segment 2:         {stats['segment2_time']:8.2f} s  ({100*stats['segment2_time']/stats['total_time']:5.1f}%)")
     print(f"  Segment 3:         {stats['segment3_time']:8.2f} s  ({100*stats['segment3_time']/stats['total_time']:5.1f}%)")
     print(f"  Utility calc:      {stats['utility_time']:8.2f} s  ({100*stats['utility_time']/stats['total_time']:5.1f}%)")
+    print(f"  Damage agg:        {stats['damage_agg_time']:8.2f} s  ({100*stats['damage_agg_time']/stats['total_time']:5.1f}%)")
+    print(f"  Climate:           {stats['climate_time']:8.2f} s  ({100*stats['climate_time']/stats['total_time']:5.1f}%)")
     print(f"  Finalize:          {stats['finalize_time']:8.2f} s  ({100*stats['finalize_time']/stats['total_time']:5.1f}%)")
     print(f"Avg time per call:   {stats['total_time']/stats['call_count']*1000:8.3f} ms")
     print(f"{'='*80}\n")
@@ -542,6 +548,8 @@ def calculate_tendencies(state, params,
         # Region 1: [0, Fmin] - Constant income
         # ------------------------------------------------------------------------
         t_before_seg1 = time.time()
+        _timing_stats['policy_calc_time'] += t_before_seg1 - t_setup
+
         if Fmin > EPSILON:
             # People below Fmin pay uniform tax on Lorenz income, then receive untaxed subsidy
             # The subsidy lifts them to the income level at Fmin
@@ -649,6 +657,7 @@ def calculate_tendencies(state, params,
         # ------------------------------------------------------------------------
         # Assign Region 2 arrays directly (no mapping back to [0,1] grid)
         # ------------------------------------------------------------------------
+        t_before_damage_agg = time.time()
         # omega_yi, y_net_yi, utility_yi represent ONLY Region 2 values
         # (always length n_quad, mapped to [Fmin, Fmax] interval for this timestep)
         # The three-region structure is used directly for aggregate calculations
@@ -730,9 +739,12 @@ def calculate_tendencies(state, params,
         else:
             Omega = 0.0
 
+        _timing_stats['damage_agg_time'] += time.time() - t_before_damage_agg
+
     #========================================================================================
     # mitigation carbon climate
-    
+        t_before_climate = time.time()
+
         # Eq 2.1: Potential emissions per capita (unabated)
         epot = sigma * y_gross
 
@@ -754,9 +766,12 @@ def calculate_tendencies(state, params,
         # aggregate utility
         U = aggregate_utility
 
+        _timing_stats['climate_time'] += time.time() - t_before_climate
+
     #========================================================================================
 
     # Prepare output
+    t_before_finalize = time.time()
     results = {}
 
     if store_detailed_output:
@@ -818,7 +833,7 @@ def calculate_tendencies(state, params,
 
     t_end = time.time()
     _timing_stats['total_time'] += t_end - t_start
-    _timing_stats['finalize_time'] += t_end - t_setup
+    _timing_stats['finalize_time'] += t_end - t_before_finalize
 
     # Print timing stats every 1000000 calls
     if _timing_stats['call_count'] % 1000000 == 0:
