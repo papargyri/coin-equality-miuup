@@ -16,16 +16,19 @@ import re
 
 def extract_config_info(directory_name):
     """
-    Extract flag pattern and max_evaluations from directory name.
+    Extract flag pattern, max_evaluations, and algorithm from directory name.
 
     Example: config_010_f-f-t-f-f_10_1_1000_el_20260106-070053
-    Returns: ('f-f-t-f-f', 1000) or (None, None) if doesn't match filter criteria
+    Returns: ('f-f-t-f-f', 1000, 'SBPLX') or (None, None, None) if doesn't match filter criteria
+
+    Example: config_010_f-f-t-f-f_10_1_1000_el_BOBYQA_20260106-070053
+    Returns: ('f-f-t-f-f', 1000, 'BOBYQA')
 
     Only returns data for:
     - Pattern *-f-*-f-f (position 2 and 4 must be 'f', position 5 must be 'f')
     - fract_gdp = 1 (not 0.02)
     """
-    # Pattern: config_XXX_{flags}_{n_points}_{fract_gdp}_{max_eval}_{opt}_TIMESTAMP
+    # Pattern: config_XXX_{flags}_{n_points}_{fract_gdp}_{max_eval}_{opt}_[BOBYQA_]TIMESTAMP
     pattern = r'config_\d+_([tf]-[tf]-[tf]-[tf]-[tf])_\d+_([\d.]+)_(\d+k?)'
     match = re.search(pattern, directory_name)
 
@@ -37,11 +40,11 @@ def extract_config_info(directory_name):
         # Filter for *-f-*-f-f pattern (position 2, 4, 5 must be 'f')
         flags = flag_pattern.split('-')
         if flags[1] != 'f' or flags[3] != 'f' or flags[4] != 'f':
-            return None, None
+            return None, None, None
 
         # Filter for fract_gdp = 1 (not 0.02)
         if abs(fract_gdp - 1.0) > 0.01:  # Allow small floating point error
-            return None, None
+            return None, None, None
 
         # Convert k suffix to thousands
         if max_eval_str.endswith('k'):
@@ -49,9 +52,12 @@ def extract_config_info(directory_name):
         else:
             max_eval = int(max_eval_str)
 
-        return flag_pattern, max_eval
+        # Detect algorithm
+        algorithm = 'BOBYQA' if '_BOBYQA' in directory_name else 'SBPLX'
 
-    return None, None
+        return flag_pattern, max_eval, algorithm
+
+    return None, None, None
 
 def load_optimization_results(output_dir='data/output'):
     """
@@ -60,7 +66,7 @@ def load_optimization_results(output_dir='data/output'):
     Returns
     -------
     dict
-        Nested dict: results[flag_pattern][max_eval] = DataFrame
+        Nested dict: results[flag_pattern][algorithm][max_eval] = DataFrame
     """
     results = {}
     output_path = Path(output_dir)
@@ -72,7 +78,7 @@ def load_optimization_results(output_dir='data/output'):
 
     for csv_file in csv_files:
         directory_name = csv_file.parent.name
-        flag_pattern, max_eval = extract_config_info(directory_name)
+        flag_pattern, max_eval, algorithm = extract_config_info(directory_name)
 
         if flag_pattern is None:
             print(f"Warning: Could not parse {directory_name}")
@@ -87,9 +93,11 @@ def load_optimization_results(output_dir='data/output'):
         # Store in nested dict
         if flag_pattern not in results:
             results[flag_pattern] = {}
+        if algorithm not in results[flag_pattern]:
+            results[flag_pattern][algorithm] = {}
 
-        results[flag_pattern][max_eval] = df
-        print(f"  Loaded: {flag_pattern}, {max_eval} evals - {len(df)} timesteps")
+        results[flag_pattern][algorithm][max_eval] = df
+        print(f"  Loaded: {flag_pattern}, {algorithm}, {max_eval} evals - {len(df)} timesteps")
 
     return results
 
@@ -200,14 +208,19 @@ def main():
         'Early [5-80]': (5, 80),
     }
 
-    # Get all flag patterns and max_eval values
+    # Get all flag patterns, algorithms, and max_eval values
     flag_patterns = sorted(results.keys())
+    all_algorithms = set()
     all_max_evals = set()
     for flag_data in results.values():
-        all_max_evals.update(flag_data.keys())
+        all_algorithms.update(flag_data.keys())
+        for algo_data in flag_data.values():
+            all_max_evals.update(algo_data.keys())
+    algorithms = sorted(all_algorithms)
     max_evals = sorted(all_max_evals)
 
     print(f"\nFlag patterns: {flag_patterns}")
+    print(f"Algorithms: {algorithms}")
     print(f"Max evaluations: {max_evals}")
 
     # ========================================================================
@@ -224,27 +237,34 @@ def main():
         for flag_pattern in flag_patterns:
             print(f"\nFlag pattern: {flag_pattern}")
 
-            for max_eval in max_evals:
-                if max_eval not in results[flag_pattern]:
+            for algorithm in algorithms:
+                if algorithm not in results[flag_pattern]:
                     continue
 
-                df = results[flag_pattern][max_eval]
-                stats = compute_statistics(df, time_period, variables=['f', 's'])
+                print(f"  Algorithm: {algorithm}")
 
-                print(f"  {max_eval:6d} evals:")
-                for var in ['f', 's']:
-                    if var in stats:
-                        s = stats[var]
-                        print(f"    {var}: mean={s['mean']:8.5f}, std={s['std']:8.5f}, median={s['median']:8.5f}")
+                for max_eval in max_evals:
+                    if max_eval not in results[flag_pattern][algorithm]:
+                        continue
+
+                    df = results[flag_pattern][algorithm][max_eval]
+                    stats = compute_statistics(df, time_period, variables=['f', 's'])
+
+                    print(f"    {max_eval:6d} evals:")
+                    for var in ['f', 's']:
+                        if var in stats:
+                            s = stats[var]
+                            print(f"      {var}: mean={s['mean']:8.5f}, std={s['std']:8.5f}, median={s['median']:8.5f}")
 
     # ========================================================================
-    # Part 2: RMS differences relative to 50k baseline
+    # Part 2: RMS differences relative to 50k SBPLX baseline
     # ========================================================================
     print("\n" + "="*80)
-    print("RMS DIFFERENCES RELATIVE TO 50k BASELINE")
+    print("RMS DIFFERENCES RELATIVE TO 50k SBPLX BASELINE")
     print("="*80)
 
     baseline_eval = 50000  # Use 50k as baseline
+    baseline_algo = 'SBPLX'  # Use SBPLX as baseline algorithm
 
     for period_name, time_period in time_periods.items():
         print(f"\n{period_name}:")
@@ -254,26 +274,33 @@ def main():
             print(f"\nFlag pattern: {flag_pattern}")
 
             # Check if we have baseline data
-            if baseline_eval not in results[flag_pattern]:
-                print(f"  WARNING: No {baseline_eval} eval baseline found!")
+            if baseline_algo not in results[flag_pattern] or baseline_eval not in results[flag_pattern][baseline_algo]:
+                print(f"  WARNING: No {baseline_algo} {baseline_eval} eval baseline found!")
                 continue
 
-            baseline_df = results[flag_pattern][baseline_eval]
+            baseline_df = results[flag_pattern][baseline_algo][baseline_eval]
 
-            for max_eval in max_evals:
-                if max_eval == baseline_eval:
-                    continue  # Skip comparison with itself
-
-                if max_eval not in results[flag_pattern]:
+            for algorithm in algorithms:
+                if algorithm not in results[flag_pattern]:
                     continue
 
-                df = results[flag_pattern][max_eval]
-                rms = compute_rms_difference(df, baseline_df, time_period, variables=['f', 's'])
+                print(f"  Algorithm: {algorithm}")
 
-                print(f"  {max_eval:6d} evals vs {baseline_eval:6d}:")
-                for var in ['f', 's']:
-                    if var in rms:
-                        print(f"    {var}: RMS diff = {rms[var]:10.7f}")
+                for max_eval in max_evals:
+                    # Skip comparison with baseline itself
+                    if algorithm == baseline_algo and max_eval == baseline_eval:
+                        continue
+
+                    if max_eval not in results[flag_pattern][algorithm]:
+                        continue
+
+                    df = results[flag_pattern][algorithm][max_eval]
+                    rms = compute_rms_difference(df, baseline_df, time_period, variables=['f', 's'])
+
+                    print(f"    {max_eval:6d} evals vs {baseline_algo} {baseline_eval:6d}:")
+                    for var in ['f', 's']:
+                        if var in rms:
+                            print(f"      {var}: RMS diff = {rms[var]:10.7f}")
 
     # ========================================================================
     # Part 3: Summary table
@@ -287,42 +314,49 @@ def main():
 
     for period_name, time_period in time_periods.items():
         for flag_pattern in flag_patterns:
-            for max_eval in max_evals:
-                if max_eval not in results[flag_pattern]:
+            for algorithm in algorithms:
+                if algorithm not in results[flag_pattern]:
                     continue
 
-                df = results[flag_pattern][max_eval]
-                stats = compute_statistics(df, time_period, variables=['f', 's'])
+                for max_eval in max_evals:
+                    if max_eval not in results[flag_pattern][algorithm]:
+                        continue
 
-                # Add statistics
-                for var in ['f', 's']:
-                    if var in stats:
-                        s = stats[var]
-                        summary_rows.append({
-                            'period': period_name,
-                            'flags': flag_pattern,
-                            'max_eval': max_eval,
-                            'variable': var,
-                            'mean': s['mean'],
-                            'std': s['std'],
-                            'median': s['median'],
-                        })
+                    df = results[flag_pattern][algorithm][max_eval]
+                    stats = compute_statistics(df, time_period, variables=['f', 's'])
 
-                # Add RMS differences
-                if baseline_eval in results[flag_pattern] and max_eval != baseline_eval:
-                    baseline_df = results[flag_pattern][baseline_eval]
-                    rms = compute_rms_difference(df, baseline_df, time_period, variables=['f', 's'])
-
+                    # Add statistics
                     for var in ['f', 's']:
-                        if var in rms:
-                            # Find the corresponding stats row and add RMS
-                            for row in summary_rows:
-                                if (row['period'] == period_name and
-                                    row['flags'] == flag_pattern and
-                                    row['max_eval'] == max_eval and
-                                    row['variable'] == var):
-                                    row['rms_vs_50k'] = rms[var]
-                                    break
+                        if var in stats:
+                            s = stats[var]
+                            summary_rows.append({
+                                'period': period_name,
+                                'flags': flag_pattern,
+                                'algorithm': algorithm,
+                                'max_eval': max_eval,
+                                'variable': var,
+                                'mean': s['mean'],
+                                'std': s['std'],
+                                'median': s['median'],
+                            })
+
+                    # Add RMS differences (all algorithms compared against SBPLX 50k)
+                    if baseline_algo in results[flag_pattern] and baseline_eval in results[flag_pattern][baseline_algo]:
+                        if not (algorithm == baseline_algo and max_eval == baseline_eval):
+                            baseline_df = results[flag_pattern][baseline_algo][baseline_eval]
+                            rms = compute_rms_difference(df, baseline_df, time_period, variables=['f', 's'])
+
+                            for var in ['f', 's']:
+                                if var in rms:
+                                    # Find the corresponding stats row and add RMS
+                                    for row in summary_rows:
+                                        if (row['period'] == period_name and
+                                            row['flags'] == flag_pattern and
+                                            row['algorithm'] == algorithm and
+                                            row['max_eval'] == max_eval and
+                                            row['variable'] == var):
+                                            row['rms_vs_50k_SBPLX'] = rms[var]
+                                            break
 
     summary_df = pd.DataFrame(summary_rows)
 
@@ -333,7 +367,7 @@ def main():
         full_df = summary_df[summary_df['period'] == 'Full [0-400]']
         for var in ['f', 's']:
             print(f"\nVariable: {var}")
-            var_df = full_df[full_df['variable'] == var][['flags', 'max_eval', 'mean', 'std', 'median', 'rms_vs_50k']]
+            var_df = full_df[full_df['variable'] == var][['flags', 'algorithm', 'max_eval', 'mean', 'std', 'median', 'rms_vs_50k_SBPLX']]
             print(var_df.to_string(index=False))
 
         print("\n\nEarly period [5-80]:")
@@ -341,7 +375,7 @@ def main():
         early_df = summary_df[summary_df['period'] == 'Early [5-80]']
         for var in ['f', 's']:
             print(f"\nVariable: {var}")
-            var_df = early_df[early_df['variable'] == var][['flags', 'max_eval', 'mean', 'std', 'median', 'rms_vs_50k']]
+            var_df = early_df[early_df['variable'] == var][['flags', 'algorithm', 'max_eval', 'mean', 'std', 'median', 'rms_vs_50k_SBPLX']]
             print(var_df.to_string(index=False))
 
         # Save to CSV

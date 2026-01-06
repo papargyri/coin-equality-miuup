@@ -199,6 +199,12 @@ def generate_all_variants(input_config_path):
         # Update run_name
         config = update_run_name(config, pattern_string)
 
+        # Remove redundant top-level fields if they exist
+        if 'optimization_iterations' in config:
+            del config['optimization_iterations']
+        if 'optimize_time_points' in config:
+            del config['optimize_time_points']
+
         # Generate output filename
         output_path = generate_output_filename(input_path, pattern_string)
 

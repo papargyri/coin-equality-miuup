@@ -38,6 +38,12 @@ def create_30k_variant(input_path):
     # Update max_evaluations: 1000 -> 30000
     config['optimization_parameters']['max_evaluations'] = 30000
 
+    # Remove redundant top-level fields if they exist
+    if 'optimization_iterations' in config:
+        del config['optimization_iterations']
+    if 'optimize_time_points' in config:
+        del config['optimize_time_points']
+
     # Generate output filename: replace _1000.json with _30k.json
     output_filename = input_path.name.replace('_1000.json', '_30k.json')
     output_path = Path.cwd() / output_filename

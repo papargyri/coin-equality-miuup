@@ -37,6 +37,12 @@ for filepath in sorted(files):
         config['optimization_parameters']['algorithm'] = 'LN_BOBYQA'
         print(f"  Algorithm: {old_algorithm} → LN_BOBYQA")
 
+    # Remove redundant top-level fields if they exist
+    if 'optimization_iterations' in config:
+        del config['optimization_iterations']
+    if 'optimize_time_points' in config:
+        del config['optimize_time_points']
+
     # Generate new filename
     old_filename = Path(filepath).name
     new_filename = old_filename.replace('.json', '_BOBYQA.json')

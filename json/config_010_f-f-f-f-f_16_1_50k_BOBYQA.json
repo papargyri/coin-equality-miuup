@@ -153,7 +153,5 @@
         "_stopping_criteria": "NLopt stopping criteria. For f,s \u2208 [0,1], absolute tolerance makes more sense than relative.",
         "xtol_abs": 1e-06,
         "_xtol_abs": "Absolute tolerance on control parameters (f,s values): stops when all |\u0394f|,|\u0394s| < 1e-6. Appropriate since f,s \u2208 [0,1]."
-    },
-    "optimization_iterations": 2,
-    "optimize_time_points": false
+    }
 }
