@@ -610,7 +610,7 @@ def main():
     print("\nCreating comprehensive results visualization...")
     results_df = pd.read_csv(output_paths['csv_file'])
     comprehensive_pdf = Path(output_dir) / 'plots_full.pdf'
-    create_results_report_pdf({config.run_name: results_df}, comprehensive_pdf)
+    create_results_report_pdf({config.run_name: results_df}, comprehensive_pdf, config_filename=config_filename_base)
     print(f"  Comprehensive PDF: {comprehensive_pdf}")
 
     print("\nWriting optimization summary CSV...")

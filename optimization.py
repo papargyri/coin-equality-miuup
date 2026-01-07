@@ -41,92 +41,166 @@ def requires_gradient(algorithm_name):
     return algorithm_name.startswith('LD_') or algorithm_name.startswith('GD_')
 
 
-def calculate_chebyshev_times(n_points, t_start, t_end, scaling_power, dt):
+def calculate_control_times(n_points, t_start, t_end, dt, delta):
     """
-    Calculate control point times using transformed Chebyshev nodes.
+    Calculate control point times using two-segment geometric spacing.
 
-    Distributes control points using a power-transformed Chebyshev distribution,
-    allowing flexible concentration of points toward early or late times. Enforces
-    minimum spacing constraint to prevent points from being closer than dt.
+    Segment 1: [t_start, t_join] with geometric growth from dt
+    Segment 2: (t_join, t_end] with geometric growth working backward from t_end
+
+    The join point is at t_join = t_end - 4/delta, which is 4 e-folding times
+    before the end of the simulation. This allows for orderly wind-down of
+    capital and other assets as the terminal time approaches.
+
+    The number of points in the wind-down region is computed dynamically:
+        n_points_end = max(1, round(4 * (1 - exp(-n_points/13))))
+    This formula ensures the wind-down region scales naturally with the total
+    number of points (e.g., 5→1, 10→2, 16→3, 24→3 points).
 
     Parameters
     ----------
     n_points : int
-        Number of control points to generate (must be >= 2)
+        Total number of control points
     t_start : float
-        Start time (years)
+        Start time (typically 0)
     t_end : float
-        End time (years)
-    scaling_power : float
-        Exponent for power transformation (must be > 0)
-        - scaling_power > 1: concentrates points near t_start
-        - scaling_power < 1: concentrates points near t_end
-        - scaling_power = 1: standard transformed Chebyshev distribution
+        End time (typically 400)
     dt : float
-        Minimum spacing between control points (years)
-        Control points will be at least dt apart
+        Minimum spacing and base spacing for segment 1
+    delta : float
+        Depreciation rate (yr^-1), used to determine join point and base spacing
+        for segment 2
 
     Returns
     -------
-    ndarray
-        Control times from t_start to t_end, with boundaries exactly at endpoints
-        and minimum spacing dt between consecutive points
+    times : ndarray
+        Array of control point times
+    r0 : float
+        Growth rate for segment 1
+    r1 : float
+        Growth rate for segment 2
 
     Notes
     -----
-    Algorithm:
-    1. Generate normalized Chebyshev-like nodes: u[k] = (1 - cos(k*π/(N-1))) / 2
-       for k = 0, 1, ..., N-1
-    2. Calculate maximum scaling power that ensures x[1] ≥ t_start + dt:
-       max_scaling_power = log(dt / (t_end - t_start)) / log(u[1])
-    3. Use effective_scaling_power = min(scaling_power, max_scaling_power)
-    4. Apply power transformation: u_scaled[k] = u[k]^effective_scaling_power
-    5. Map to time interval: t[k] = t_start + (t_end - t_start) * u_scaled[k]
-
-    The maximum scaling power constraint ensures:
-    - The second point (k=1) is at least dt from t_start
-    - All subsequent points maintain proper Chebyshev spacing
-    - No artificial clipping that distorts the distribution
-
-    This prevents numerical issues from having control points closer together
-    than the integration time step while preserving the Chebyshev distribution shape.
-
-    Examples
-    --------
-    Standard Chebyshev-like spacing (scaling_power=1.0):
-    >>> times = calculate_chebyshev_times(5, 0, 100, 1.0, 1.0)
-
-    Concentrate points in early period (scaling_power=1.5):
-    >>> times = calculate_chebyshev_times(20, 0, 400, 1.5, 1.0)
-    # Half of points will be in first ~141 years, with minimum 1-year spacing
+    Segment 1 spacing: dx[i] = dt * (1 + r0)^i
+    Segment 2 uses y = t_end - x coordinate system, with spacing:
+        dy[p] = base_spacing * (1 + r1)^p
+    where base_spacing = (1 - exp(-1))/delta
     """
-    N = n_points
-    k_values = np.arange(N)
+    from scipy.optimize import brentq
 
-    # Transformed Chebyshev nodes mapped to [0, 1]
-    u = (1 - np.cos(k_values * np.pi / (N - 1))) / 2
+    # Calculate number of points in wind-down region using dynamic formula
+    n_points_end = max(1, round(4 * (1 - np.exp(-n_points / 13))))
 
-    # Calculate maximum scaling power that ensures x[1] >= t_start + dt
-    # From: t_start + (t_end - t_start) * u[1]^scaling_power >= t_start + dt
-    # We get: scaling_power <= log(dt / (t_end - t_start)) / log(u[1])
-    u_1 = u[1]  # Second point's normalized position
-    normalized_dt = dt / (t_end - t_start)
-    max_scaling_power = np.log(normalized_dt) / np.log(u_1)
+    # Calculate join point: 4 e-folding times before end
+    y_join = 4.0 / delta  # Distance from end in y-space
+    t_join = t_end - y_join
 
-    # Use the minimum of requested scaling_power and the constraint
-    effective_scaling_power = min(scaling_power, max_scaling_power)
+    # Number of points in each segment
+    n1 = n_points - n_points_end  # Segment 1 includes join point
+    n2 = n_points_end  # Segment 2 excludes join point
 
-    # Apply power transformation with effective scaling
-    u_scaled = u ** effective_scaling_power
+    if n1 < 3:
+        min_points = 3 + n_points_end
+        raise ValueError(
+            f"Insufficient control points: segment 1 requires at least 3 points, but got {n1}. "
+            f"With n_points={n_points}, the formula gives n_points_end={n_points_end}. "
+            f"You need at least {min_points} total points for this to work."
+        )
 
-    # Map to [t_start, t_end]
-    times = t_start + (t_end - t_start) * u_scaled
+    # Base spacing for segment 2
+    base_spacing = (1 - np.exp(-1)) / delta
 
-    # Ensure exact endpoints (handle floating point precision)
-    times[0] = t_start
-    times[-1] = t_end
+    # ========== SEGMENT 1: [t_start, t_join] ==========
+    n_intervals_1 = n1 - 1
+    target_total_1 = t_join - t_start
 
-    return times, effective_scaling_power
+    # Solve for r0 such that sum(dt * (1+r0)^i for i=0 to n1-2) = target_total_1
+    def sum_geometric_1(r0):
+        total = 0
+        for i in range(n_intervals_1):
+            total += dt * (1 + r0)**i
+        return total
+
+    def equation_1(r0):
+        return sum_geometric_1(r0) - target_total_1
+
+    # Find r0 using root finding
+    # For small n_intervals, we may need large r0 values
+    try:
+        r0 = brentq(equation_1, -0.5, 100.0)
+    except ValueError:
+        # If can't solve, use uniform spacing
+        r0 = (target_total_1 / (n_intervals_1 * dt)) - 1.0
+
+    # Construct segment 1 times
+    times_1 = np.zeros(n1)
+    times_1[0] = t_start
+    for i in range(n_intervals_1):
+        spacing = dt * (1 + r0)**i
+        times_1[i+1] = times_1[i] + spacing
+
+    # Ensure exact join point
+    times_1[-1] = t_join
+
+    # ========== SEGMENT 2: (t_join, t_end] ==========
+    # Working backward from x=t_end using y = t_end - x
+    # n2 points in segment 2 (NOT counting join point at t_join)
+    # P = n2 intervals from y=0 to y=y_join
+    # Spacing: y[p+1] - y[p] = base_spacing * (1+r1)^p for p=0, 1, ..., P-1
+
+    if n2 == 0:
+        times_2 = np.array([])
+        r1 = 0.0
+
+    elif n2 == 1:
+        # Just the endpoint
+        times_2 = np.array([t_end])
+        r1 = 0.0
+
+    elif n2 == 2:
+        # Two points: at y=0 and y=base_spacing
+        times_2 = np.array([t_end - base_spacing, t_end])
+        r1 = 0.0
+
+    else:
+        # n2 >= 3: solve for r1
+        # We want: base_spacing * sum((1+r1)^j for j=0 to n2-1) = y_join
+        P = n2  # Number of intervals
+
+        def sum_geometric_2(r1):
+            total = 0
+            for j in range(P):
+                total += (1 + r1)**j
+            return total
+
+        def equation_2(r1):
+            return base_spacing * sum_geometric_2(r1) - y_join
+
+        # Find r1 using root finding
+        try:
+            r1 = brentq(equation_2, -0.5, 100.0)
+        except ValueError:
+            r1 = 0.0
+
+        # Construct segment 2 points in y-space, then convert to x-space
+        y_vals = np.zeros(n2 + 1)
+        y_vals[0] = 0  # y[0] = 0 (x = t_end)
+
+        for p in range(P):
+            spacing_y = base_spacing * (1 + r1)**p
+            y_vals[p+1] = y_vals[p] + spacing_y
+
+        # Convert to x-space (exclude the join point at y[P])
+        # Store in increasing order (reverse of y order)
+        times_2 = np.zeros(n2)
+        for i in range(n2):
+            times_2[n2 - 1 - i] = t_end - y_vals[i]
+
+    # Combine segments
+    times = np.concatenate([times_1, times_2])
+
+    return times, r0, r1
 
 
 def interpolate_to_new_grid(old_times, old_values, new_times):
@@ -1245,9 +1319,10 @@ class UtilityOptimizer:
             else:
                 refinement_base_s = refinement_base_f  # Use same base as f if not specified
 
-        chebyshev_scaling = self.base_config.optimization_params.chebyshev_scaling_power
+        delta = self.base_config.scalar_params.delta
+        t_join = self.base_config.integration_params.t_end - 4.0 / delta
         print(f"\nIterative refinement: {n_iterations} iterations, base_f = {refinement_base_f:.4f}, base_evaluations = {refinement_base_evaluations:.4f}")
-        print(f"Chebyshev scaling power: {chebyshev_scaling:.2f}")
+        print(f"Control point spacing: dynamic wind-down region (t > {t_join:.1f} years)")
         if n_points_final is not None:
             print(f"Target final f points: {n_points_final}")
         print(f"Max evaluations: initial={max_evaluations_initial}, final={max_evaluations_final}")
@@ -1276,12 +1351,12 @@ class UtilityOptimizer:
                 n_points_f = n_points_final if n_points_final is not None else n_points_initial
             else:
                 n_points_f = round(1 + (n_points_initial - 1) * refinement_base_f**(iteration - 1))
-            f_control_times, f_effective_scaling = calculate_chebyshev_times(
+            f_control_times, f_r0, f_r1 = calculate_control_times(
                 n_points_f,
                 self.base_config.integration_params.t_start,
                 self.base_config.integration_params.t_end,
-                self.base_config.optimization_params.chebyshev_scaling_power,
-                self.base_config.integration_params.dt
+                self.base_config.integration_params.dt,
+                delta
             )
 
             if iteration == 1:
@@ -1294,18 +1369,17 @@ class UtilityOptimizer:
             iteration_f_control_grids.append(f_control_times.copy())
 
             # Calculate s control points (if optimizing both f and s)
-            s_effective_scaling = None
             if optimize_f_and_s:
                 if n_iterations == 1:
                     n_points_s = n_points_final_s if n_points_final_s is not None else n_points_initial_s
                 else:
                     n_points_s = round(1 + (n_points_initial_s - 1) * refinement_base_s**(iteration - 1))
-                s_control_times, s_effective_scaling = calculate_chebyshev_times(
+                s_control_times, s_r0, s_r1 = calculate_control_times(
                     n_points_s,
                     self.base_config.integration_params.t_start,
                     self.base_config.integration_params.t_end,
-                    self.base_config.optimization_params.chebyshev_scaling_power,
-                    self.base_config.integration_params.dt
+                    self.base_config.integration_params.dt,
+                    delta
                 )
 
                 if iteration == 1:
@@ -1325,12 +1399,8 @@ class UtilityOptimizer:
                 print(f"    (gradient-based, using numerical derivatives)")
             print(f"  Max evaluations: {iteration_max_evaluations}")
 
-            # Print effective scaling power (may be constrained by minimum spacing)
-            requested_scaling = self.base_config.optimization_params.chebyshev_scaling_power
-            if f_effective_scaling < requested_scaling - 1e-10:
-                print(f"  Chebyshev scaling: {requested_scaling:.3f} (requested) → {f_effective_scaling:.3f} (effective, constrained by dt)")
-            else:
-                print(f"  Chebyshev scaling: {f_effective_scaling:.3f}")
+            # Print spacing parameters (growth rates in segment 1 and 2)
+            print(f"  Spacing: segment 1 growth r0={f_r0:.4f}, segment 2 growth r1={f_r1:.4f}")
 
             print(f"\n  f (abatement fraction) - OPTIMIZED:")
             print(f"    Control points: {n_points_f}")
@@ -1340,6 +1410,7 @@ class UtilityOptimizer:
                 print(f"\n  s (savings rate) - OPTIMIZED:")
                 print(f"    Control points: {n_points_s}")
                 print(f"    Time points: {s_control_times}")
+                print(f"    Spacing: segment 1 growth r0={s_r0:.4f}, segment 2 growth r1={s_r1:.4f}")
             print(f"{'=' * 80}\n")
 
             # Run optimization with timing

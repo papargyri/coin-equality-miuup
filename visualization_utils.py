@@ -130,7 +130,7 @@ def create_legend_panel(ax, case_data):
     ax.set_title('Legend', fontsize=11, fontweight='bold', pad=10)
 
 
-def create_results_report_pdf(case_data, output_pdf):
+def create_results_report_pdf(case_data, output_pdf, config_filename=None):
     """
     Create PDF report with all time series plots (6 per page, 16:9 landscape).
 
@@ -145,6 +145,8 @@ def create_results_report_pdf(case_data, output_pdf):
         {case_name: results_df, ...}
     output_pdf : Path or str
         Output PDF file path
+    config_filename : str, optional
+        Name of configuration file to display as footnote on each page
 
     Notes
     -----
@@ -291,6 +293,11 @@ def create_results_report_pdf(case_data, output_pdf):
 
                 # Set the y-axis limits
                 ax.set_ylim(ymin_default, ymax_default)
+
+            # Add config filename as footnote if provided
+            if config_filename:
+                fig.text(0.01, 0.005, f'Config: {config_filename}',
+                        fontsize=7, color='gray', ha='left', va='bottom')
 
             pdf.savefig(fig, orientation='landscape')
             plt.close(fig)

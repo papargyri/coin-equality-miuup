@@ -508,16 +508,6 @@ class OptimizationParameters:
         When True, adjusts temporal spacing of control points while keeping values fixed.
         This allows optimizer to concentrate control points where changes matter most.
         Only applies to iterative refinement mode. Default: False (disabled)
-    chebyshev_scaling_power : float, optional
-        Power exponent for Chebyshev node transformation (must be > 0).
-        Controls the concentration of control points in time.
-        - Values > 1.0: concentrate points near t_start (early concentration)
-        - Values < 1.0: concentrate points near t_end (late concentration)
-        - Value = 1.0: standard transformed Chebyshev spacing
-        Default: 1.5 (concentrates points in early period where discounting
-        makes decisions most impactful)
-        Example: With t_end=400 and scaling_power=1.5, half the points
-        occur before year 141.
     """
     max_evaluations_initial: int
     max_evaluations_final: int
@@ -537,7 +527,6 @@ class OptimizationParameters:
     bounds_f: list = None  # [min, max] for f, defaults to [0.0, 1.0]
     bounds_s: list = None  # [min, max] for s, defaults to [0.0, 1.0]
     optimize_time_points: bool = False
-    chebyshev_scaling_power: float = 1.5
 
     def is_iterative_refinement(self):
         """
