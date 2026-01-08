@@ -632,7 +632,7 @@ def main():
     print(f"  Iterations performed: {opt_results['n_iterations']}")
     print(f"  Total evaluations: {opt_results['n_evaluations']}")
     print(f"  Final control points: {n_final_control_points}")
-    print(f"\nOptimal objective value: {opt_results['optimal_objective']:.6e}")
+    print(f"\nOptimal objective value: {opt_results['optimal_objective']:.12e}")
     print(f"\nIteration history:")
     for iter_result in opt_results['iteration_history']:
         print(f"  Iteration {iter_result['iteration']:2d}: {iter_result['n_control_points']:3d} points, "

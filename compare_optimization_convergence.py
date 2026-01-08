@@ -38,6 +38,10 @@ def extract_config_info(directory_name):
         fract_gdp = float(match.group(2))
         max_eval_str = match.group(3)
 
+        # Filter for _el_ directories only
+        if '_el_' not in directory_name:
+            return None, None, None
+
         # Filter for *-f-*-f-f pattern (position 2, 4, 5 must be 'f')
         flags = flag_pattern.split('-')
         if flags[1] != 'f' or flags[3] != 'f' or flags[4] != 'f':
@@ -64,20 +68,28 @@ def parse_optimal_objective(output_dir):
     """
     Parse the optimal objective value from terminal_output.txt.
 
+    Searches for the last occurrence of 'Objective value:' in the file
+    to get the full precision value from iteration output. The iteration
+    output shows unscaled values, so we multiply by OBJECTIVE_SCALE to
+    get the properly scaled objective value.
+
     Returns the optimal objective value as a float, or None if not found.
     """
+    from constants import OBJECTIVE_SCALE
+
     terminal_output_path = Path(output_dir) / 'terminal_output.txt'
 
     if not terminal_output_path.exists():
         return None
 
+    last_objective = None
     with open(terminal_output_path, 'r') as f:
         for line in f:
-            if 'Optimal objective value:' in line:
+            if 'Objective value:' in line:
                 value_str = line.split(':')[1].strip()
-                return float(value_str)
+                last_objective = float(value_str) * OBJECTIVE_SCALE
 
-    return None
+    return last_objective
 
 def parse_optimization_summary(output_dir):
     """
@@ -132,16 +144,16 @@ def load_optimization_results(output_dir='data/output'):
 
     Returns
     -------
-    tuple of (dict, dict, dict, dict)
-        results: Nested dict results[flag_pattern][algorithm][max_eval] = DataFrame
-        objectives: Nested dict objectives[flag_pattern][algorithm][max_eval] = optimal_objective_value
-        run_names: Nested dict run_names[flag_pattern][algorithm][max_eval] = directory_name
-        summaries: Nested dict summaries[flag_pattern][algorithm][max_eval] = {iterations_performed, total_evaluations, final_control_points}
+    dict
+        Dictionary keyed by directory_name, each entry containing:
+        - 'flag_pattern': str
+        - 'algorithm': str
+        - 'max_eval': int
+        - 'df': DataFrame with optimization results
+        - 'objective': float (optimal objective value)
+        - 'summary': dict with iterations_performed, total_evaluations, etc.
     """
-    results = {}
-    objectives = {}
-    run_names = {}
-    summaries = {}
+    all_runs = {}
     output_path = Path(output_dir)
 
     # Find all optimization_results.csv files
@@ -167,25 +179,18 @@ def load_optimization_results(output_dir='data/output'):
         optimal_obj = parse_optimal_objective(csv_file.parent)
         summary = parse_optimization_summary(csv_file.parent)
 
-        # Store in nested dicts
-        if flag_pattern not in results:
-            results[flag_pattern] = {}
-            objectives[flag_pattern] = {}
-            run_names[flag_pattern] = {}
-            summaries[flag_pattern] = {}
-        if algorithm not in results[flag_pattern]:
-            results[flag_pattern][algorithm] = {}
-            objectives[flag_pattern][algorithm] = {}
-            run_names[flag_pattern][algorithm] = {}
-            summaries[flag_pattern][algorithm] = {}
+        # Store with directory_name as unique key
+        all_runs[directory_name] = {
+            'flag_pattern': flag_pattern,
+            'algorithm': algorithm,
+            'max_eval': max_eval,
+            'df': df,
+            'objective': optimal_obj,
+            'summary': summary,
+        }
+        print(f"  Loaded: {directory_name} - {flag_pattern}, {algorithm}, {max_eval} evals, obj={optimal_obj}")
 
-        results[flag_pattern][algorithm][max_eval] = df
-        objectives[flag_pattern][algorithm][max_eval] = optimal_obj
-        run_names[flag_pattern][algorithm][max_eval] = directory_name
-        summaries[flag_pattern][algorithm][max_eval] = summary
-        print(f"  Loaded: {flag_pattern}, {algorithm}, {max_eval} evals - {len(df)} timesteps, obj={optimal_obj}")
-
-    return results, objectives, run_names, summaries
+    return all_runs
 
 def compute_statistics(df, time_period, variables=['f', 's']):
     """
@@ -281,10 +286,10 @@ def main():
     print("OPTIMIZATION CONVERGENCE ANALYSIS")
     print("="*80)
 
-    # Load all results
-    results, objectives, run_names, summaries = load_optimization_results()
+    # Load all results (keyed by directory name)
+    all_runs = load_optimization_results()
 
-    if not results:
+    if not all_runs:
         print("ERROR: No results found!")
         sys.exit(1)
 
@@ -294,20 +299,11 @@ def main():
         'Early [5-80]': (5, 80),
     }
 
-    # Get all flag patterns, algorithms, and max_eval values
-    flag_patterns = sorted(results.keys())
-    all_algorithms = set()
-    all_max_evals = set()
-    for flag_data in results.values():
-        all_algorithms.update(flag_data.keys())
-        for algo_data in flag_data.values():
-            all_max_evals.update(algo_data.keys())
-    algorithms = sorted(all_algorithms)
-    max_evals = sorted(all_max_evals)
+    # Get all unique flag patterns
+    flag_patterns = sorted(set(run['flag_pattern'] for run in all_runs.values()))
 
-    print(f"\nFlag patterns: {flag_patterns}")
-    print(f"Algorithms: {algorithms}")
-    print(f"Max evaluations: {max_evals}")
+    print(f"\nTotal runs loaded: {len(all_runs)}")
+    print(f"Flag patterns: {flag_patterns}")
 
     # ========================================================================
     # Find best baseline for each flag pattern
@@ -320,114 +316,28 @@ def main():
     baselines = {}
     for flag_pattern in flag_patterns:
         best_obj = -np.inf
-        best_algo = None
-        best_eval = None
+        best_run_name = None
 
-        for algorithm in algorithms:
-            if algorithm not in objectives[flag_pattern]:
+        for run_name, run_data in all_runs.items():
+            if run_data['flag_pattern'] != flag_pattern:
                 continue
-            for max_eval in max_evals:
-                if max_eval not in objectives[flag_pattern][algorithm]:
-                    continue
-                obj = objectives[flag_pattern][algorithm][max_eval]
-                if obj is not None and obj > best_obj:
-                    best_obj = obj
-                    best_algo = algorithm
-                    best_eval = max_eval
+            obj = run_data['objective']
+            if obj is not None and obj > best_obj:
+                best_obj = obj
+                best_run_name = run_name
 
-        if best_algo is not None:
+        if best_run_name is not None:
             baselines[flag_pattern] = {
-                'algorithm': best_algo,
-                'max_eval': best_eval,
-                'objective': best_obj
+                'run_name': best_run_name,
+                'objective': best_obj,
+                'df': all_runs[best_run_name]['df']
             }
-            print(f"\n{flag_pattern}: {best_algo} {best_eval} evals (obj = {best_obj:.6e})")
+            print(f"\n{flag_pattern}: {best_run_name} (obj = {best_obj:.6e})")
         else:
             print(f"\n{flag_pattern}: WARNING - No valid baseline found!")
 
     # ========================================================================
-    # Part 1: Statistics for each configuration
-    # ========================================================================
-    print("\n" + "="*80)
-    print("STATISTICS FOR EACH CONFIGURATION")
-    print("="*80)
-
-    for period_name, time_period in time_periods.items():
-        print(f"\n{period_name}:")
-        print("-" * 80)
-
-        for flag_pattern in flag_patterns:
-            print(f"\nFlag pattern: {flag_pattern}")
-
-            for algorithm in algorithms:
-                if algorithm not in results[flag_pattern]:
-                    continue
-
-                print(f"  Algorithm: {algorithm}")
-
-                for max_eval in max_evals:
-                    if max_eval not in results[flag_pattern][algorithm]:
-                        continue
-
-                    df = results[flag_pattern][algorithm][max_eval]
-                    stats = compute_statistics(df, time_period, variables=['f', 's'])
-
-                    print(f"    {max_eval:6d} evals:")
-                    for var in ['f', 's']:
-                        if var in stats:
-                            s = stats[var]
-                            print(f"      {var}: mean={s['mean']:8.5f}, std={s['std']:8.5f}, median={s['median']:8.5f}")
-
-    # ========================================================================
-    # Part 2: RMS differences relative to best objective baseline
-    # ========================================================================
-    print("\n" + "="*80)
-    print("RMS DIFFERENCES RELATIVE TO BEST OBJECTIVE BASELINE")
-    print("="*80)
-
-    for period_name, time_period in time_periods.items():
-        print(f"\n{period_name}:")
-        print("-" * 80)
-
-        for flag_pattern in flag_patterns:
-            # Check if we have baseline data
-            if flag_pattern not in baselines:
-                print(f"\nFlag pattern: {flag_pattern}")
-                print(f"  WARNING: No baseline found!")
-                continue
-
-            baseline_info = baselines[flag_pattern]
-            baseline_algo = baseline_info['algorithm']
-            baseline_eval = baseline_info['max_eval']
-            baseline_obj = baseline_info['objective']
-            baseline_df = results[flag_pattern][baseline_algo][baseline_eval]
-
-            print(f"\nFlag pattern: {flag_pattern} (baseline: {baseline_algo} {baseline_eval} evals, obj={baseline_obj:.6e})")
-
-            for algorithm in algorithms:
-                if algorithm not in results[flag_pattern]:
-                    continue
-
-                print(f"  Algorithm: {algorithm}")
-
-                for max_eval in max_evals:
-                    # Skip comparison with baseline itself
-                    if algorithm == baseline_algo and max_eval == baseline_eval:
-                        continue
-
-                    if max_eval not in results[flag_pattern][algorithm]:
-                        continue
-
-                    df = results[flag_pattern][algorithm][max_eval]
-                    rms = compute_rms_difference(df, baseline_df, time_period, variables=['f', 's'])
-
-                    print(f"    {max_eval:6d} evals vs baseline:")
-                    for var in ['f', 's']:
-                        if var in rms:
-                            print(f"      {var}: RMS diff = {rms[var]:10.7f}")
-
-    # ========================================================================
-    # Part 3: Summary table
+    # Summary table - process every run individually
     # ========================================================================
     print("\n" + "="*80)
     print("SUMMARY TABLE")
@@ -436,85 +346,75 @@ def main():
     # Create summary DataFrame
     summary_rows = []
 
-    for period_name, time_period in time_periods.items():
-        for flag_pattern in flag_patterns:
-            for algorithm in algorithms:
-                if algorithm not in results[flag_pattern]:
-                    continue
+    for run_name in sorted(all_runs.keys()):
+        run_data = all_runs[run_name]
+        flag_pattern = run_data['flag_pattern']
+        algorithm = run_data['algorithm']
+        max_eval = run_data['max_eval']
+        df = run_data['df']
+        obj_value = run_data['objective']
+        summary = run_data['summary']
 
-                for max_eval in max_evals:
-                    if max_eval not in results[flag_pattern][algorithm]:
-                        continue
+        for period_name, time_period in time_periods.items():
+            stats = compute_statistics(df, time_period, variables=['f', 's'])
 
-                    df = results[flag_pattern][algorithm][max_eval]
-                    stats = compute_statistics(df, time_period, variables=['f', 's'])
+            # Get baseline info for this flag pattern
+            baseline_info = baselines.get(flag_pattern)
+            baseline_obj = baseline_info['objective'] if baseline_info else None
+            baseline_df = baseline_info['df'] if baseline_info else None
+            baseline_run_name = baseline_info['run_name'] if baseline_info else None
 
-                    # Get objective value, run name, and summary for this configuration
-                    obj_value = objectives[flag_pattern][algorithm][max_eval]
-                    run_name = run_names[flag_pattern][algorithm][max_eval]
-                    summary = summaries[flag_pattern][algorithm][max_eval]
+            # Compute objective departure (best - current, positive means worse than best)
+            obj_departure = (baseline_obj - obj_value) if (baseline_obj is not None and obj_value is not None) else np.nan
 
-                    # Add statistics
-                    for var in ['f', 's']:
-                        if var in stats:
-                            s = stats[var]
-                            summary_rows.append({
-                                'period': period_name,
-                                'flags': flag_pattern,
-                                'algorithm': algorithm,
-                                'max_eval': max_eval,
-                                'run_name': run_name,
-                                'variable': var,
-                                'objective': obj_value,
-                                'iterations_performed': summary['iterations_performed'],
-                                'total_evaluations': summary['total_evaluations'],
-                                'final_control_points': summary['final_control_points'],
-                                'total_runtime_seconds': summary['total_runtime_seconds'],
-                                'mean': s['mean'],
-                                'std': s['std'],
-                                'median': s['median'],
-                            })
+            # Compute RMS vs baseline
+            if baseline_df is not None:
+                if run_name == baseline_run_name:
+                    rms = {'f': 0.0, 's': 0.0}
+                else:
+                    rms = compute_rms_difference(df, baseline_df, time_period, variables=['f', 's'])
+            else:
+                rms = {'f': np.nan, 's': np.nan}
 
-                    # Add RMS differences (all algorithms compared against best objective baseline)
-                    if flag_pattern in baselines:
-                        baseline_info = baselines[flag_pattern]
-                        baseline_algo = baseline_info['algorithm']
-                        baseline_eval = baseline_info['max_eval']
-
-                        # If comparing with itself, RMS = 0.0; otherwise compute RMS
-                        if algorithm == baseline_algo and max_eval == baseline_eval:
-                            rms = {'f': 0.0, 's': 0.0}
-                        else:
-                            baseline_df = results[flag_pattern][baseline_algo][baseline_eval]
-                            rms = compute_rms_difference(df, baseline_df, time_period, variables=['f', 's'])
-
-                        for var in ['f', 's']:
-                            if var in rms:
-                                # Find the corresponding stats row and add RMS
-                                for row in summary_rows:
-                                    if (row['period'] == period_name and
-                                        row['flags'] == flag_pattern and
-                                        row['algorithm'] == algorithm and
-                                        row['max_eval'] == max_eval and
-                                        row['variable'] == var):
-                                        row['rms_vs_best_baseline'] = rms[var]
-                                        break
+            # Add row for each variable
+            for var in ['f', 's']:
+                if var in stats:
+                    s = stats[var]
+                    summary_rows.append({
+                        'period': period_name,
+                        'flags': flag_pattern,
+                        'algorithm': algorithm,
+                        'max_eval': max_eval,
+                        'run_name': run_name,
+                        'variable': var,
+                        'objective': obj_value,
+                        'obj_departure': obj_departure,
+                        'iterations_performed': summary['iterations_performed'],
+                        'total_evaluations': summary['total_evaluations'],
+                        'final_control_points': summary['final_control_points'],
+                        'total_runtime_seconds': summary['total_runtime_seconds'],
+                        'mean': s['mean'],
+                        'std': s['std'],
+                        'median': s['median'],
+                        'rms_vs_best_baseline': rms.get(var, np.nan),
+                    })
 
     summary_df = pd.DataFrame(summary_rows)
 
     if not summary_df.empty:
-        # Sort by: variable (asc), flags (asc), period (desc), objective (desc)
+        # Sort by: period (desc for Full before Early), variable (asc), flags (asc), objective (desc)
         summary_df = summary_df.sort_values(
-            by=['variable', 'flags', 'period', 'objective'],
-            ascending=[True, True, False, False]
+            by=['period', 'variable', 'flags', 'objective'],
+            ascending=[False, True, True, False]
         ).reset_index(drop=True)
-        # Pivot for better viewing
+
+        # Print summary tables
         print("\nFull period [0-400]:")
         print("-" * 80)
         full_df = summary_df[summary_df['period'] == 'Full [0-400]']
         for var in ['f', 's']:
             print(f"\nVariable: {var}")
-            var_df = full_df[full_df['variable'] == var][['flags', 'algorithm', 'max_eval', 'objective', 'mean', 'std', 'median', 'rms_vs_best_baseline']]
+            var_df = full_df[full_df['variable'] == var][['flags', 'run_name', 'objective', 'obj_departure', 'mean', 'std', 'median', 'rms_vs_best_baseline']]
             print(var_df.to_string(index=False))
 
         print("\n\nEarly period [5-80]:")
@@ -522,7 +422,7 @@ def main():
         early_df = summary_df[summary_df['period'] == 'Early [5-80]']
         for var in ['f', 's']:
             print(f"\nVariable: {var}")
-            var_df = early_df[early_df['variable'] == var][['flags', 'algorithm', 'max_eval', 'objective', 'mean', 'std', 'median', 'rms_vs_best_baseline']]
+            var_df = early_df[early_df['variable'] == var][['flags', 'run_name', 'objective', 'obj_departure', 'mean', 'std', 'median', 'rms_vs_best_baseline']]
             print(var_df.to_string(index=False))
 
         # Save to CSV
