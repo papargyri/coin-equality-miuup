@@ -94,10 +94,11 @@ def main():
     create_comparison_report_pdf(optimization_data, results_data, pdf_path)
 
     # Generate PDF comparison report (2025-2100 time range)
+    # Results data now uses calendar years, so filter directly on calendar years
     print("Generating PDF comparison report (2025-2100)...")
     pdf_path_short = output_dir / 'comparison_plots_2025-2100.pdf'
     create_comparison_report_pdf(optimization_data, results_data, pdf_path_short,
-                                  t_min=5, t_max=80, t_offset=2020)
+                                  t_min=2025, t_max=2100, t_offset=0)
 
     print("\n" + "="*80)
     print("Comparison complete!")

@@ -179,8 +179,18 @@ def print_header(text):
     print(f"{'=' * 80}\n")
 
 
-def print_optimization_results(opt_results, n_control_points):
-    """Print formatted optimization results."""
+def print_optimization_results(opt_results, n_control_points, t_base=0.0):
+    """Print formatted optimization results.
+
+    Parameters
+    ----------
+    opt_results : dict
+        Optimization results dictionary
+    n_control_points : int
+        Number of control points
+    t_base : float
+        Base year for time functions (added to relative times for display)
+    """
     # Check if s was also optimized
     has_s_optimization = 's_control_points' in opt_results and opt_results['s_control_points'] is not None
 
@@ -190,13 +200,13 @@ def print_optimization_results(opt_results, n_control_points):
             print(f"Optimal s₀:             {opt_results['s_optimal_values'][0]:.6f}")
     else:
         print(f"Optimal f control values:")
-        for t, f_val in opt_results['control_points']:
-            print(f"  t={t:6.1f} yr: f={f_val:.6f}")
+        for t_rel, f_val in opt_results['control_points']:
+            print(f"  t={t_rel + t_base:6.1f} yr: f={f_val:.6f}")
 
         if has_s_optimization:
             print(f"\nOptimal s control values:")
-            for t, s_val in opt_results['s_control_points']:
-                print(f"  t={t:6.1f} yr: s={s_val:.6f}")
+            for t_rel, s_val in opt_results['s_control_points']:
+                print(f"  t={t_rel + t_base:6.1f} yr: s={s_val:.6f}")
 
     print(f"\nOptimal objective:      {opt_results['optimal_objective']:.6e}")
     print(f"Function evaluations:   {opt_results['n_evaluations']}")
@@ -556,7 +566,8 @@ def main():
         print(f"Control values have no effect on outcome.")
         print(f"Returning initial guess values.\n")
 
-    print_optimization_results(opt_results, n_final_control_points)
+    t_base = config.scalar_params.t_base
+    print_optimization_results(opt_results, n_final_control_points, t_base)
 
     comparison_results = None
 
@@ -616,7 +627,7 @@ def main():
     print(f"  Comprehensive PDF: {comprehensive_pdf}")
 
     print("\nWriting optimization summary CSV...")
-    opt_csv_path = write_optimization_summary(opt_results, sensitivity_results, output_dir, config.run_name, 'optimization_summary.csv')
+    opt_csv_path = write_optimization_summary(opt_results, sensitivity_results, output_dir, config.run_name, 'optimization_summary.csv', t_base)
     print(f"  Optimization CSV: {opt_csv_path}")
 
     print("\nCopying configuration file...")
@@ -641,13 +652,13 @@ def main():
               f"objective = {iter_result['optimal_objective']:.6e}, "
               f"evals = {iter_result['n_evaluations']}")
     print(f"\nFinal control trajectory (f - abatement fraction):")
-    for t, f_val in opt_results['control_points']:
-        print(f"  t={t:6.1f} yr: f={f_val:.6f}")
+    for t_rel, f_val in opt_results['control_points']:
+        print(f"  t={t_rel + t_base:6.1f} yr: f={f_val:.6f}")
 
     if 's_control_points' in opt_results:
         print(f"\nFinal control trajectory (s - savings rate):")
-        for t, s_val in opt_results['s_control_points']:
-            print(f"  t={t:6.1f} yr: s={s_val:.6f}")
+        for t_rel, s_val in opt_results['s_control_points']:
+            print(f"  t={t_rel + t_base:6.1f} yr: s={s_val:.6f}")
 
     print(f"\nAll results saved to: {output_dir}")
 

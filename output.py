@@ -155,7 +155,7 @@ def copy_config_file(config_path, output_dir):
     return output_path
 
 
-def write_optimization_summary(opt_results, sensitivity_results, output_dir, run_name, filename='optimization_summary.csv'):
+def write_optimization_summary(opt_results, sensitivity_results, output_dir, run_name, filename='optimization_summary.csv', t_base=0.0):
     """
     Write optimization summary statistics to CSV file.
 
@@ -171,6 +171,8 @@ def write_optimization_summary(opt_results, sensitivity_results, output_dir, run
         Name of the model run to prepend to filename
     filename : str
         Name of CSV file
+    t_base : float
+        Base year for time functions (added to relative times for output)
 
     Returns
     -------
@@ -228,19 +230,19 @@ def write_optimization_summary(opt_results, sensitivity_results, output_dir, run
             writer.writerow(['Note', 'Control values have no effect on outcome. Returning initial guess.'])
         writer.writerow([])
 
-        # Write final control points for f
+        # Write final control points for f (times converted to calendar years)
         writer.writerow(['Final f(t) Control Points'])
         writer.writerow(['Time', 'f Value'])
-        for time, value in opt_results['control_points']:
-            writer.writerow([f"{time:.2f}", f"{value:.6f}"])
+        for t_rel, value in opt_results['control_points']:
+            writer.writerow([f"{t_rel + t_base:.2f}", f"{value:.6f}"])
 
         # Write final control points for s if dual optimization
         if is_dual and 's_control_points' in opt_results:
             writer.writerow([])
             writer.writerow(['Final s(t) Control Points'])
             writer.writerow(['Time', 's Value'])
-            for time, value in opt_results['s_control_points']:
-                writer.writerow([f"{time:.2f}", f"{value:.6f}"])
+            for t_rel, value in opt_results['s_control_points']:
+                writer.writerow([f"{t_rel + t_base:.2f}", f"{value:.6f}"])
 
         if 'iteration_history' in opt_results:
             writer.writerow([])
@@ -284,8 +286,8 @@ def write_optimization_summary(opt_results, sensitivity_results, output_dir, run
                     iter_result['iteration'],
                     iter_result['n_control_points']
                 ]
-                for time in control_times:
-                    row.append(f"{time:.2f}")
+                for t_rel in control_times:
+                    row.append(f"{t_rel + t_base:.2f}")
                 for _ in range(max_points - len(control_times)):
                     row.append('')
                 writer.writerow(row)

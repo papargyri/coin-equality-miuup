@@ -1350,14 +1350,19 @@ class UtilityOptimizer:
                 iteration_max_evaluations = round(1 + (max_evaluations_initial - 1) * refinement_base_evaluations**(iteration - 1))
 
             # Calculate f control points
+            # Control functions use relative time (t - t_base), so control times must be relative
+            t_base = self.base_config.scalar_params.t_base
+            t_start_relative = self.base_config.integration_params.t_start - t_base
+            t_end_relative = self.base_config.integration_params.t_end - t_base
+
             if n_iterations == 1:
                 n_points_f = n_points_final if n_points_final is not None else n_points_initial
             else:
                 n_points_f = round(1 + (n_points_initial - 1) * refinement_base_f**(iteration - 1))
             f_control_times, f_r0, f_r1 = calculate_control_times(
                 n_points_f,
-                self.base_config.integration_params.t_start,
-                self.base_config.integration_params.t_end,
+                t_start_relative,
+                t_end_relative,
                 self.base_config.integration_params.dt,
                 delta
             )
@@ -1379,8 +1384,8 @@ class UtilityOptimizer:
                     n_points_s = round(1 + (n_points_initial_s - 1) * refinement_base_s**(iteration - 1))
                 s_control_times, s_r0, s_r1 = calculate_control_times(
                     n_points_s,
-                    self.base_config.integration_params.t_start,
-                    self.base_config.integration_params.t_end,
+                    t_start_relative,
+                    t_end_relative,
                     self.base_config.integration_params.dt,
                     delta
                 )
@@ -1407,12 +1412,12 @@ class UtilityOptimizer:
 
             print(f"\n  f (abatement fraction) - OPTIMIZED:")
             print(f"    Control points: {n_points_f}")
-            print(f"    Time points: {f_control_times}")
+            print(f"    Time points: {f_control_times + t_base}")
 
             if optimize_f_and_s:
                 print(f"\n  s (savings rate) - OPTIMIZED:")
                 print(f"    Control points: {n_points_s}")
-                print(f"    Time points: {s_control_times}")
+                print(f"    Time points: {s_control_times + t_base}")
                 print(f"    Spacing: segment 1 growth r0={s_r0:.4f}, segment 2 growth r1={s_r1:.4f}")
             print(f"{'=' * 80}\n")
 
