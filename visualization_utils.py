@@ -188,11 +188,6 @@ def create_results_report_pdf(case_data, output_pdf, config_filename=None):
         ('U', 'Mean utility', 'Mean Utility Per Capita'),
         ('redistribution', 'Per-capita redistribution ($/person/yr)', 'Per-Capita Redistribution'),
         ('Redistribution_amount', 'Total redistribution ($/yr)', 'Total Redistribution'),
-        ('gini_consumption', 'Gini coefficient', 'Gini Coefficient of Consumption'),
-        ('gini_utility', 'Gini coefficient', 'Gini Coefficient of Utility'),
-        ('delta_gini_consumption', 'Change in Gini', 'Change in Gini (Consumption)'),
-        ('delta_gini_utility', 'Change in Gini', 'Change in Gini (Utility)'),
-
         # Abatement Economics
         ('marginal_abatement_cost', 'Marginal abatement cost ($/tCO2)', 'Marginal Abatement Cost'),
         ('r_consumption', 'Effective discount rate', 'Effective Discount Rate on Consumption'),
@@ -571,11 +566,6 @@ def create_results_report_pdf_to_existing(case_data, pdf):
         ('U', 'Mean utility', 'Mean Utility Per Capita'),
         ('redistribution', 'Per-capita redistribution ($/person/yr)', 'Per-Capita Redistribution'),
         ('Redistribution_amount', 'Total redistribution ($/yr)', 'Total Redistribution'),
-        ('gini_consumption', 'Gini coefficient', 'Gini Coefficient of Consumption'),
-        ('gini_utility', 'Gini coefficient', 'Gini Coefficient of Utility'),
-        ('delta_gini_consumption', 'Change in Gini', 'Change in Gini (Consumption)'),
-        ('delta_gini_utility', 'Change in Gini', 'Change in Gini (Utility)'),
-
         # Abatement Economics
         ('marginal_abatement_cost', 'Marginal abatement cost ($/tCO2)', 'Marginal Abatement Cost'),
         ('r_consumption', 'Effective discount rate', 'Effective Discount Rate on Consumption'),

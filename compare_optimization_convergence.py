@@ -2,7 +2,7 @@
 """
 Compare optimization convergence across different max_evaluations settings.
 
-Analyzes control variables (f and s) from config_011_*-f-*-f-f_* optimization results to compare:
+Analyzes control variables (f and s) from config_011/012_*-f-*-f-f_* optimization results to compare:
 - Statistics (mean, std, median) for different iteration counts
 - RMS differences relative to best objective value baseline (greatest = least negative)
 - Two time periods: [0, 400] and [5, 80]
@@ -19,18 +19,18 @@ def extract_config_info(directory_name):
     """
     Extract flag pattern, max_evaluations, and algorithm from directory name.
 
-    Example: config_011_f-f-t-f-f_10_1_1000_el_20260106-070053
+    Example: config_011_f-f-t-f-f_10_1_1000_el_20260106-070053 or config_012_...
     Returns: ('f-f-t-f-f', 1000, 'SBPLX') or (None, None, None) if doesn't match filter criteria
 
-    Example: config_011_f-f-t-f-f_10_1_1000_el_BOBYQA_20260106-070053
+    Example: config_011_f-f-t-f-f_10_1_1000_el_BOBYQA_20260106-070053 or config_012_...
     Returns: ('f-f-t-f-f', 1000, 'BOBYQA')
 
     Only returns data for:
     - Pattern *-f-*-f-f (position 2 and 4 must be 'f', position 5 must be 'f')
     - fract_gdp = 1 (not 0.02)
     """
-    # Pattern: config_011_{flags}_{n_points}_{fract_gdp}_{max_eval}_{opt}_[BOBYQA_]TIMESTAMP
-    pattern = r'config_011_([tf]-[tf]-[tf]-[tf]-[tf])_\d+_([\d.]+)_(\d+k?)'
+    # Pattern: config_011/012_{flags}_{n_points}_{fract_gdp}_{max_eval}_{opt}_[BOBYQA_]TIMESTAMP
+    pattern = r'config_01[12]_([tf]-[tf]-[tf]-[tf]-[tf])_\d+_([\d.]+)_(\d+k?)'
     match = re.search(pattern, directory_name)
 
     if match:
@@ -337,13 +337,13 @@ def main():
             print(f"\n{flag_pattern}: WARNING - No valid baseline found!")
 
     # ========================================================================
-    # Summary table - process every run individually
+    # Summary table - process every run individually (one row per run/period)
     # ========================================================================
     print("\n" + "="*80)
     print("SUMMARY TABLE")
     print("="*80)
 
-    # Create summary DataFrame
+    # Create summary DataFrame - one row per run per period
     summary_rows = []
 
     for run_name in sorted(all_runs.keys()):
@@ -376,54 +376,59 @@ def main():
             else:
                 rms = {'f': np.nan, 's': np.nan}
 
-            # Add row for each variable
-            for var in ['f', 's']:
-                if var in stats:
-                    s = stats[var]
-                    summary_rows.append({
-                        'period': period_name,
-                        'flags': flag_pattern,
-                        'algorithm': algorithm,
-                        'max_eval': max_eval,
-                        'run_name': run_name,
-                        'variable': var,
-                        'objective': obj_value,
-                        'obj_departure': obj_departure,
-                        'iterations_performed': summary['iterations_performed'],
-                        'total_evaluations': summary['total_evaluations'],
-                        'final_control_points': summary['final_control_points'],
-                        'total_runtime_seconds': summary['total_runtime_seconds'],
-                        'mean': s['mean'],
-                        'std': s['std'],
-                        'median': s['median'],
-                        'rms_vs_best_baseline': rms.get(var, np.nan),
-                    })
+            # Build single row with f and s columns
+            row = {
+                'period': period_name,
+                'flags': flag_pattern,
+                'algorithm': algorithm,
+                'max_eval': max_eval,
+                'run_name': run_name,
+                'objective': obj_value,
+                'obj_departure': obj_departure,
+                'iterations_performed': summary['iterations_performed'],
+                'total_evaluations': summary['total_evaluations'],
+                'final_control_points': summary['final_control_points'],
+                'total_runtime_seconds': summary['total_runtime_seconds'],
+            }
+
+            # Add f statistics
+            if 'f' in stats:
+                row['f_mean'] = stats['f']['mean']
+                row['f_std'] = stats['f']['std']
+                row['f_median'] = stats['f']['median']
+                row['f_rms_vs_baseline'] = rms.get('f', np.nan)
+
+            # Add s statistics
+            if 's' in stats:
+                row['s_mean'] = stats['s']['mean']
+                row['s_std'] = stats['s']['std']
+                row['s_median'] = stats['s']['median']
+                row['s_rms_vs_baseline'] = rms.get('s', np.nan)
+
+            summary_rows.append(row)
 
     summary_df = pd.DataFrame(summary_rows)
 
     if not summary_df.empty:
-        # Sort by: period (desc for Full before Early), variable (asc), flags (asc), objective (desc)
+        # Sort by: period (desc for Full before Early), flags (asc), objective (desc)
         summary_df = summary_df.sort_values(
-            by=['period', 'variable', 'flags', 'objective'],
-            ascending=[False, True, True, False]
+            by=['period', 'flags', 'objective'],
+            ascending=[False, True, False]
         ).reset_index(drop=True)
 
         # Print summary tables
         print("\nFull period [0-400]:")
         print("-" * 80)
         full_df = summary_df[summary_df['period'] == 'Full [0-400]']
-        for var in ['f', 's']:
-            print(f"\nVariable: {var}")
-            var_df = full_df[full_df['variable'] == var][['flags', 'run_name', 'objective', 'obj_departure', 'mean', 'std', 'median', 'rms_vs_best_baseline']]
-            print(var_df.to_string(index=False))
+        display_cols = ['flags', 'run_name', 'objective', 'obj_departure',
+                        'f_mean', 'f_std', 'f_rms_vs_baseline',
+                        's_mean', 's_std', 's_rms_vs_baseline']
+        print(full_df[display_cols].to_string(index=False))
 
         print("\n\nEarly period [5-80]:")
         print("-" * 80)
         early_df = summary_df[summary_df['period'] == 'Early [5-80]']
-        for var in ['f', 's']:
-            print(f"\nVariable: {var}")
-            var_df = early_df[early_df['variable'] == var][['flags', 'run_name', 'objective', 'obj_departure', 'mean', 'std', 'median', 'rms_vs_best_baseline']]
-            print(var_df.to_string(index=False))
+        print(early_df[display_cols].to_string(index=False))
 
         # Save to CSV
         output_file = 'optimization_convergence_analysis.csv'

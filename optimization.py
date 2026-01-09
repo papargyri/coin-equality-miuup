@@ -52,10 +52,9 @@ def calculate_control_times(n_points, t_start, t_end, dt, delta):
     before the end of the simulation. This allows for orderly wind-down of
     capital and other assets as the terminal time approaches.
 
-    The number of points in the wind-down region is computed dynamically:
-        n_points_end = max(1, round(4 * (1 - exp(-n_points/13))))
-    This formula ensures the wind-down region scales naturally with the total
-    number of points (e.g., 5→1, 10→2, 16→3, 24→3 points).
+    The number of points in the wind-down region:
+        - 10 or fewer total points: 1 point at t_end
+        - 11 or more total points: 2 points at t_end and t_end - 1/delta
 
     Parameters
     ----------
@@ -89,8 +88,10 @@ def calculate_control_times(n_points, t_start, t_end, dt, delta):
     """
     from scipy.optimize import brentq
 
-    # Calculate number of points in wind-down region using dynamic formula
-    n_points_end = max(1, round(4 * (1 - np.exp(-n_points / 13))))
+    # Calculate number of points in wind-down region
+    # 10 or fewer points: 1 point at t_end
+    # 11 or more points: 2 points at t_end and t_end - 1/delta
+    n_points_end = 1 if n_points <= 10 else 2
 
     # Calculate join point: 4 e-folding times before end
     y_join = 4.0 / delta  # Distance from end in y-space
@@ -159,8 +160,8 @@ def calculate_control_times(n_points, t_start, t_end, dt, delta):
         r1 = 0.0
 
     elif n2 == 2:
-        # Two points: at y=0 and y=base_spacing
-        times_2 = np.array([t_end - base_spacing, t_end])
+        # Two points: at t_end - 1/delta and t_end
+        times_2 = np.array([t_end - 1.0/delta, t_end])
         r1 = 0.0
 
     else:

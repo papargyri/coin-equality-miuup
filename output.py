@@ -429,10 +429,6 @@ def write_results_csv(results, output_dir, run_name='', filename='results.csv'):
         'climate_damage': ('Per capita climate damage', '$/person/yr'),
         'consumption': ('Per capita consumption', '$/person/yr'),
         'savings': ('Per capita savings', '$/person/yr'),
-        'gini_consumption': ('Gini coefficient of consumption distribution', 'dimensionless'),
-        'gini_utility': ('Gini coefficient of utility distribution', 'dimensionless'),
-        'delta_gini_consumption': ('Change in Gini from input (consumption)', 'dimensionless'),
-        'delta_gini_utility': ('Change in Gini from input (utility)', 'dimensionless'),
         'tax_amount': ('Per-capita tax amount (abatement + redistribution)', '$/person/yr'),
         'r_consumption': ('Effective discount rate on consumption', 'dimensionless'),
     }

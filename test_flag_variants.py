@@ -89,8 +89,7 @@ def compare_results(base_case, variants):
 
     # Variables that may DIFFER (distribution-dependent)
     different_vars = [
-        'U', 'Gini', 'gini_consumption', 'gini_utility',
-        'delta_gini_consumption', 'delta_gini_utility', 'r_consumption'
+        'U', 'Gini', 'r_consumption'
     ]
 
     base_df = base_case['df']

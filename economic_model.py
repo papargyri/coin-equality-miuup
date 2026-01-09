@@ -1095,7 +1095,7 @@ def create_derived_variables(results):
         - Total variables: Y_gross, Y_net, Y_damaged, E, AbateCost, Climate_damage
         - Consumption/savings: Consumption, consumption, Savings, savings
         - Other: marginal_abatement_cost, Lambda, redistribution, Redistribution_amount
-        - Gini: gini_consumption, gini_utility, delta_gini_consumption, delta_gini_utility
+        - Gini: (removed - gini_consumption, gini_utility, etc. no longer computed)
         - Discount rate: r_consumption (annual effective discount rate on consumption)
 
     Notes
@@ -1151,78 +1151,6 @@ def create_derived_variables(results):
     # Add dEcum_dt as alias to E for consistency
     dEcum_dt = E
 
-    # Compute Gini coefficients from distributions (requires loop over timesteps)
-    gini_consumption = np.zeros(n_steps)
-    gini_utility = np.zeros(n_steps)
-    delta_gini_consumption = np.zeros(n_steps)
-    delta_gini_utility = np.zeros(n_steps)
-
-    # Extract distribution info from results
-    y_net_yi_region2 = results['y_net_yi']  # Region 2 values only (length n_quad)
-    min_y_net_array = results['min_y_net']   # Region 1 constant income
-    max_y_net_array = results['max_y_net']   # Region 3 constant income
-    Fmin_array = results['Fmin']
-    Fmax_array = results['Fmax']
-    Fi_edges = results['Fi_edges']
-    Fwi = results['Fwi']
-    xi_edges = results['xi_edges']  # Quadrature bin edges in xi space [-1, 1]
-    Fi = (Fi_edges[:-1] + Fi_edges[1:]) / 2.0  # Midpoints of bins
-
-    for i in range(n_steps):
-        s_i = s_array[i]
-        eta_i = eta_array[i]
-        gini_i = gini_array[i]
-
-        # Reconstruct full distribution from three-region structure
-        Fmin_i = Fmin_array[i]
-        Fmax_i = Fmax_array[i]
-        min_y_net_i = min_y_net_array[i]
-        max_y_net_i = max_y_net_array[i]
-        y_net_region2_i = y_net_yi_region2[i, :]
-
-        # Map Region 2 values back to standard [0,1] grid for Gini calculation
-        # Use smooth interpolation to avoid discrete jumps when Fmax changes
-        y_net_yi_full = np.zeros(len(Fi))
-        for j, F in enumerate(Fi):
-            if F <= Fmin_i:
-                y_net_yi_full[j] = min_y_net_i
-            elif F >= Fmax_i:
-                y_net_yi_full[j] = max_y_net_i
-            else:
-                # Interpolate from Region 2 values using smooth interpolation
-                # Transform F to normalized coordinate x ∈ [0, 1] within [Fmin, Fmax]
-                x = (F - Fmin_i) / (Fmax_i - Fmin_i) if Fmax_i > Fmin_i else 0.0
-                # Transform x to xi coordinate ∈ [-1, 1]
-                xi = 2.0 * x - 1.0
-                # Use stepwise interpolation on the quadrature grid
-                y_net_yi_full[j] = stepwise_interpolate(xi, y_net_region2_i, xi_edges)
-
-        # Calculate consumption_yi from y_net_yi
-        consumption_yi_i = y_net_yi_full * (1.0 - s_i)
-
-        # Calculate Gini coefficient for consumption
-        if y_gross[i] > EPSILON:
-            gini_consumption[i] = gini_from_distribution(consumption_yi_i, Fi_edges, Fwi)
-            delta_gini_consumption[i] = gini_consumption[i] - gini_i
-
-            # Calculate utility Gini only when eta < 1
-            if eta_i < 1.0:
-                if eta_i == 1.0:
-                    utility_yi_i = np.log(np.maximum(consumption_yi_i, EPSILON))
-                else:
-                    utility_yi_i = (np.maximum(consumption_yi_i, EPSILON) ** (1.0 - eta_i)) / (1.0 - eta_i)
-
-                gini_utility[i] = gini_from_distribution(utility_yi_i, Fi_edges, Fwi)
-                delta_gini_utility[i] = gini_utility[i] - gini_i
-            else:
-                gini_utility[i] = 0.0
-                delta_gini_utility[i] = 0.0
-        else:
-            gini_consumption[i] = 0.0
-            delta_gini_consumption[i] = 0.0
-            gini_utility[i] = 0.0
-            delta_gini_utility[i] = 0.0
-
     # Compute annual effective discount rate on consumption
     # r_consumption(t) = exp(rho * dt) * (consumption(t+dt)/consumption(t))^eta - 1.0
     t_array = results['t']
@@ -1263,10 +1191,6 @@ def create_derived_variables(results):
         'Lambda': Lambda,
         'redistribution': redistribution,
         'dEcum_dt': dEcum_dt,
-        'gini_consumption': gini_consumption,
-        'gini_utility': gini_utility,
-        'delta_gini_consumption': delta_gini_consumption,
-        'delta_gini_utility': delta_gini_utility,
         'r_consumption': r_consumption,
     })
 

@@ -348,7 +348,6 @@ def main():
     print(f'  Cumulative emissions (Ecum):  {results["Ecum"][0]:.3e} tCO2')
     print(f'  Temperature change (ΔT):      {results["delta_T"][0]:.3f} °C')
     print(f'  Gini index:                   {results["Gini"][0]:.4f}')
-    print(f'  Gini consumption:             {results["gini_consumption"][0]:.4f}')
     print(f'  Mean utility (U):             {results["U"][0]:.6f}')
 
     print(f'\nFinal State (t={results["t"][-1]:.1f} yr):')
@@ -356,40 +355,7 @@ def main():
     print(f'  Cumulative emissions (Ecum):  {results["Ecum"][-1]:.3e} tCO2')
     print(f'  Temperature change (ΔT):      {results["delta_T"][-1]:.3f} °C')
     print(f'  Gini index:                   {results["Gini"][-1]:.4f}')
-    print(f'  Gini consumption:             {results["gini_consumption"][-1]:.4f}')
     print(f'  Mean utility (U):             {results["U"][-1]:.6f}')
-
-    # Check for unusual behavior
-    print(f'\n' + '=' * 80)
-    print(f'Diagnostics')
-    print(f'=' * 80)
-
-    gini_cons = results["gini_consumption"]
-    gini_cons_range = gini_cons.max() - gini_cons.min()
-    gini_cons_std = np.std(gini_cons)
-
-    print(f'\nGini consumption statistics:')
-    print(f'  Mean:  {gini_cons.mean():.6f}')
-    print(f'  Std:   {gini_cons_std:.6f}')
-    print(f'  Min:   {gini_cons.min():.6f} at t={results["t"][gini_cons.argmin()]:.1f} yr')
-    print(f'  Max:   {gini_cons.max():.6f} at t={results["t"][gini_cons.argmax()]:.1f} yr')
-    print(f'  Range: {gini_cons_range:.6f}')
-
-    if gini_cons_std > 0.01:
-        print(f'\n  WARNING: Large variation in gini_consumption (std={gini_cons_std:.6f})')
-        print(f'  This may indicate numerical issues or policy switching.')
-
-    # Check for discontinuities
-    gini_cons_diff = np.diff(gini_cons)
-    max_jump = np.abs(gini_cons_diff).max()
-    max_jump_idx = np.abs(gini_cons_diff).argmax()
-
-    print(f'\nGini consumption jumps:')
-    print(f'  Max jump: {gini_cons_diff[max_jump_idx]:.6f} at t={results["t"][max_jump_idx]:.1f} yr')
-    if max_jump > 0.001:
-        print(f'\n  WARNING: Large jump in gini_consumption ({gini_cons_diff[max_jump_idx]:.6f})')
-        print(f'  Time: t={results["t"][max_jump_idx]:.1f} → {results["t"][max_jump_idx+1]:.1f} yr')
-        print(f'  Values: {gini_cons[max_jump_idx]:.6f} → {gini_cons[max_jump_idx+1]:.6f}')
 
     # Save results
     print(f'\n' + '=' * 80)

@@ -113,8 +113,7 @@ def compare_results(results):
 
     # Variables that may DIFFER (distribution-dependent)
     different_vars = [
-        'U', 'Gini', 'gini_consumption', 'gini_utility',
-        'delta_gini_consumption', 'delta_gini_utility', 'r_consumption',
+        'U', 'Gini', 'r_consumption',
         'Fmin', 'Fmax', 'min_y_net', 'max_y_net'
     ]
 
