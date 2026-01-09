@@ -41,7 +41,9 @@
         "income_dependent_redistribution_policy": false,
         "_income_dependent_redistribution_policy": "Subswitch of income_redistribution. If true, targeted to lowest income; if false, uniform dividend",
         "use_empirical_lorenz": true,
-        "_use_empirical_lorenz": "If true, use Empirical Lorenz formulation L(F) = (1 - G/Gini_base)\u00b7F + (G/Gini_base)\u00b7L_base(F) where L_base is the base empirical curve with fixed parameters; if false, use Pareto-Lorenz formulation (default)"
+        "_use_empirical_lorenz": "If true, use Empirical Lorenz formulation L(F) = (1 - G/Gini_base)\u00b7F + (G/Gini_base)\u00b7L_base(F) where L_base is the base empirical curve with fixed parameters; if false, use Pareto-Lorenz formulation (default)",
+        "t_base": 2020.0,
+        "_t_base": "Base year for time functions. Functions receive (t - t_base)."
     },
     "time_functions": {
         "_description": "Time-dependent exogenous functions",
@@ -98,8 +100,8 @@
     },
     "integration_parameters": {
         "_description": "Time integration settings",
-        "t_start": 0.0,
-        "t_end": 400,
+        "t_start": 2020.0,
+        "t_end": 2420.0,
         "_t_end": "Integrate for 400 years",
         "dt": 1.0,
         "_dt": "1-year time step (Euler method)",

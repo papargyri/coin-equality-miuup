@@ -341,6 +341,10 @@ class ScalarParameters:
         If True, use Empirical Lorenz formulation L(F) = F^p * (1 - (1-F)^q)
         If False, use Pareto-Lorenz formulation (default)
         Parameters (p, q) are derived from Gini coefficient using symmetric case G0=G1=g
+    t_base : float
+        Base year for time-dependent functions. Time functions receive (t - t_base)
+        so they can be parameterized for relative time (0 = base year).
+        Default: 2020.0
     """
     alpha: float
     delta: float
@@ -360,6 +364,7 @@ class ScalarParameters:
     income_redistribution: bool
     income_dependent_redistribution_policy: bool
     use_empirical_lorenz: bool = False
+    t_base: float = 2020.0  # Base year for time functions (functions receive t - t_base)
     mu_max: float = None  # Will be set to INVERSE_EPSILON in __post_init__ if None
     Ecum_initial: float = 0.0  # Default to zero (no prior emissions)
 
@@ -637,7 +642,7 @@ def evaluate_params_at_time(t, config):
     Parameters
     ----------
     t : float
-        Time at which to evaluate parameters (yr)
+        Time at which to evaluate parameters (calendar year)
     config : ModelConfiguration
         Complete model configuration
 
@@ -655,12 +660,18 @@ def evaluate_params_at_time(t, config):
     The control function now returns a tuple (f, s) where both f and s can be
     optimized or prescribed. This enables dual optimization of abatement allocation
     and savings rate.
+
+    Time functions and control functions receive relative time (t - t_base) so they
+    can be parameterized for relative time where 0 = base year (default 2020).
     """
     sp = config.scalar_params
     tf = config.time_functions
 
+    # Compute relative time for time functions (t_base is the reference year)
+    t_relative = t - sp.t_base
+
     params = {
-        # Time
+        # Time (calendar year for output/display)
         't': t,
 
         # Scalar parameters
@@ -682,19 +693,19 @@ def evaluate_params_at_time(t, config):
         'theta2': sp.theta2,
         'mu_max': sp.mu_max,
 
-        # Time-dependent function evaluations
-        'A': tf['A'](t),
-        'L': tf['L'](t),
-        'sigma': tf['sigma'](t),
-        'theta1': tf['theta1'](t),
-        'gini': tf['gini'](t),
+        # Time-dependent function evaluations (use relative time)
+        'A': tf['A'](t_relative),
+        'L': tf['L'](t_relative),
+        'sigma': tf['sigma'](t_relative),
+        'theta1': tf['theta1'](t_relative),
+        'gini': tf['gini'](t_relative),
 
         # Lorenz formulation parameters
         'use_empirical_lorenz': sp.use_empirical_lorenz,
     }
 
-    # Dual control function evaluation returns (f, s)
-    f, s = config.control_function(t)
+    # Dual control function evaluation returns (f, s) - uses relative time
+    f, s = config.control_function(t_relative)
     params['f'] = f
     params['s'] = s
 

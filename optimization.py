@@ -483,7 +483,9 @@ class UtilityOptimizer:
         U = results['U']
         L = results['L']
 
-        discount_factors = np.exp(-rho * t)
+        # Discount relative to simulation start (elapsed time), not calendar year
+        t_start = self.base_config.integration_params.t_start
+        discount_factors = np.exp(-rho * (t - t_start))
         integrand = discount_factors * U * L
 
         # np.trapezoid for numerically integrates by drawing a straight line between points

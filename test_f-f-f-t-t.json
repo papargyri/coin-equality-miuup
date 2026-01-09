@@ -39,7 +39,9 @@
         "income_redistribution": true,
         "_income_redistribution": "If true, enable redistribution; if false, no redistribution (all revenues to abatement)",
         "income_dependent_redistribution_policy": true,
-        "_income_dependent_redistribution_policy": "Subswitch of income_redistribution. If true, targeted to lowest income; if false, uniform dividend"
+        "_income_dependent_redistribution_policy": "Subswitch of income_redistribution. If true, targeted to lowest income; if false, uniform dividend",
+        "t_base": 2020.0,
+        "_t_base": "Base year for time functions. Functions receive (t - t_base)."
     },
     "time_functions": {
         "_description": "Time-dependent exogenous functions",
@@ -96,8 +98,8 @@
     },
     "integration_parameters": {
         "_description": "Time integration settings",
-        "t_start": 0.0,
-        "t_end": 400,
+        "t_start": 2020.0,
+        "t_end": 2420.0,
         "_t_end": "Integrate for 400 years",
         "dt": 1.0,
         "_dt": "1-year time step (Euler method)",

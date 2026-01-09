@@ -277,7 +277,9 @@ def compare_scenarios(config, f_values, labels):
         t = results['t']
         U = results['U']
         L = results['L']
-        discount_factors = np.exp(-rho * t)
+        # Discount relative to simulation start (elapsed time), not calendar year
+        t_start = config.integration_params.t_start
+        discount_factors = np.exp(-rho * (t - t_start))
         integrand = discount_factors * U * L
         objective = np.trapezoid(integrand, t)
 

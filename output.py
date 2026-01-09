@@ -821,9 +821,7 @@ def save_results(results, run_name, plot_short_horizon=None, output_dir=None, co
     run_name : str
         Name of the model run
     plot_short_horizon : float or None
-        If provided, creates a second PDF with results up to this time (years).
-        Creates both plots_full.pdf and plots_short.pdf.
-        If None, creates single plots.pdf with all results.
+        DEPRECATED - ignored. The 2025-2100 plot is always created.
     output_dir : str or None
         If provided, uses this directory for output. If None, creates new timestamped directory.
     config_filename : str, optional
@@ -836,15 +834,15 @@ def save_results(results, run_name, plot_short_horizon=None, output_dir=None, co
         - 'output_dir': path to output directory
         - 'csv_file': path to CSV file
         - 'pdf_file': path to full PDF file
-        - 'pdf_file_short': path to short-horizon PDF file (if plot_short_horizon provided)
+        - 'pdf_file_2025_2100': path to 2025-2100 PDF file (if data covers this range)
 
     Notes
     -----
     Creates directory: ./data/output/{run_name}_YYYYMMDD-HHMMSS (if output_dir not provided)
     Writes files:
     - results.csv: all variables in tabular format
-    - plots_full.pdf: time series plots for entire integration period
-    - plots_short.pdf: time series plots for short horizon (if plot_short_horizon provided)
+    - plots.pdf: time series plots for entire integration period
+    - plots_2025-2100.pdf: time series plots for calendar years 2025-2100 (if available)
     """
     if output_dir is None:
         output_dir = create_output_directory(run_name)
@@ -861,30 +859,28 @@ def save_results(results, run_name, plot_short_horizon=None, output_dir=None, co
     exclude_from_plots = {'y_net_yi', 'omega_yi', 'utility_yi', 'xi', 'wi', 'xi_edges', 'Fi', 'Fwi', 'Fi_edges'}
     results_for_plots = {k: v for k, v in results.items() if k not in exclude_from_plots}
 
-    if plot_short_horizon is not None:
-        t = results['t']
-        mask = t <= plot_short_horizon
-        n_time = len(t)
+    # Always create full PDF
+    pdf_file = plot_results_pdf(results_for_plots, output_dir, run_name, filename='plots.pdf', config_filename=config_filename, use_first_90_percent_for_ylim=True)
+    output_dict['pdf_file'] = pdf_file
 
-        results_short = {}
+    # Always create 2025-2100 filtered PDF (using calendar years)
+    t = results['t']
+    mask = (t >= 2025) & (t <= 2100)
+    if np.any(mask):
+        n_time = len(t)
+        results_2025_2100 = {}
         for key, val in results_for_plots.items():
             if isinstance(val, np.ndarray):
                 if val.ndim == 1 and len(val) == n_time:
-                    results_short[key] = val[mask]
+                    results_2025_2100[key] = val[mask]
                 elif val.ndim == 2 and val.shape[0] == n_time:
-                    results_short[key] = val[mask, :]
+                    results_2025_2100[key] = val[mask, :]
                 else:
-                    results_short[key] = val
+                    results_2025_2100[key] = val
             else:
-                results_short[key] = val
+                results_2025_2100[key] = val
 
-        pdf_file_full = plot_results_pdf(results_for_plots, output_dir, run_name, filename='plots_full.pdf', config_filename=config_filename, use_first_90_percent_for_ylim=True)
-        pdf_file_short = plot_results_pdf(results_short, output_dir, run_name, filename='plots_short.pdf', config_filename=config_filename)
-
-        output_dict['pdf_file'] = pdf_file_full
-        output_dict['pdf_file_short'] = pdf_file_short
-    else:
-        pdf_file = plot_results_pdf(results_for_plots, output_dir, run_name, filename='plots.pdf', config_filename=config_filename)
-        output_dict['pdf_file'] = pdf_file
+        pdf_file_2025_2100 = plot_results_pdf(results_2025_2100, output_dir, run_name, filename='plots_2025-2100.pdf', config_filename=config_filename)
+        output_dict['pdf_file_2025_2100'] = pdf_file_2025_2100
 
     return output_dict
