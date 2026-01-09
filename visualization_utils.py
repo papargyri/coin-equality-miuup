@@ -12,6 +12,7 @@ and multiple cases, ensuring consistent formatting across all reports.
 
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
+from matplotlib.ticker import MultipleLocator
 import pandas as pd
 import numpy as np
 from pathlib import Path
@@ -40,7 +41,8 @@ def clean_column_names(df):
     return df
 
 
-def plot_timeseries(ax, case_data, variable, ylabel, title, show_legend=False):
+def plot_timeseries(ax, case_data, variable, ylabel, title, show_legend=False,
+                    t_min=None, t_max=None, t_offset=0):
     """
     Create time series plot on given axes (unified function for single/multi-run).
 
@@ -64,6 +66,12 @@ def plot_timeseries(ax, case_data, variable, ylabel, title, show_legend=False):
         Plot title
     show_legend : bool, optional
         If True, show legend on this plot (default: False)
+    t_min : float, optional
+        Minimum time value to include (before offset). If None, use all data.
+    t_max : float, optional
+        Maximum time value to include (before offset). If None, use all data.
+    t_offset : float, optional
+        Offset to add to time values for display (default: 0)
 
     Notes
     -----
@@ -75,9 +83,16 @@ def plot_timeseries(ax, case_data, variable, ylabel, title, show_legend=False):
 
     for idx, (case_name, df) in enumerate(case_data.items()):
         if variable in df.columns:
+            # Apply time filtering
+            df_filtered = df
+            if t_min is not None:
+                df_filtered = df_filtered[df_filtered['t'] >= t_min]
+            if t_max is not None:
+                df_filtered = df_filtered[df_filtered['t'] <= t_max]
+
             ax.plot(
-                df['t'],
-                df[variable],
+                df_filtered['t'] + t_offset,
+                df_filtered[variable],
                 label=case_name,
                 linewidth=2,
                 color=colors[idx % 10]
@@ -87,6 +102,15 @@ def plot_timeseries(ax, case_data, variable, ylabel, title, show_legend=False):
     ax.set_ylabel(ylabel, fontsize=10)
     ax.set_title(f'{variable}: {title}', fontsize=11, fontweight='bold')
     ax.grid(True, alpha=0.3, linestyle='--')
+
+    # Set custom x-axis ticks when time offset is applied (e.g., for 2025-2100 plots)
+    if t_offset > 0 and t_min is not None and t_max is not None:
+        # Set x-axis limits
+        ax.set_xlim(t_min + t_offset, t_max + t_offset)
+        # Major ticks at 25-year intervals (2025, 2050, 2075, 2100)
+        ax.xaxis.set_major_locator(MultipleLocator(25))
+        # Minor ticks every 5 years
+        ax.xaxis.set_minor_locator(MultipleLocator(5))
 
     # Apply logarithmic scale for specific variables
     log_scale_vars = {'y_net', 'K', 'Consumption', 'Savings', 'Y_gross', 'Y_net', 'A', 'redistribution', 'Redistribution_amount'}
@@ -473,7 +497,8 @@ def create_evaluations_scatter_on_axes(ax, optimization_data):
     ax.grid(True, alpha=0.3, linestyle='--')
 
 
-def create_comparison_report_pdf(optimization_data, results_data, output_pdf):
+def create_comparison_report_pdf(optimization_data, results_data, output_pdf,
+                                  t_min=None, t_max=None, t_offset=0):
     """
     Create comprehensive PDF report comparing multiple optimization runs.
 
@@ -488,6 +513,12 @@ def create_comparison_report_pdf(optimization_data, results_data, output_pdf):
         {case_name: results_df, ...}
     output_pdf : Path or str
         Output PDF file path
+    t_min : float, optional
+        Minimum time value to include (before offset). If None, use all data.
+    t_max : float, optional
+        Maximum time value to include (before offset). If None, use all data.
+    t_offset : float, optional
+        Offset to add to time values for display (default: 0)
     """
     with PdfPages(output_pdf) as pdf:
         # Page 1: Summary plots (2×3 grid, 16:9 landscape)
@@ -519,12 +550,13 @@ def create_comparison_report_pdf(optimization_data, results_data, output_pdf):
         # Pages 2+: Time series comparisons using unified plotting function
         if results_data:
             # Temporarily save to pdf object by passing it
-            create_results_report_pdf_to_existing(results_data, pdf)
+            create_results_report_pdf_to_existing(results_data, pdf,
+                                                   t_min=t_min, t_max=t_max, t_offset=t_offset)
 
     print(f"Comparison PDF report saved to: {output_pdf}")
 
 
-def create_results_report_pdf_to_existing(case_data, pdf):
+def create_results_report_pdf_to_existing(case_data, pdf, t_min=None, t_max=None, t_offset=0):
     """
     Add results plots to existing PDF object.
 
@@ -534,6 +566,12 @@ def create_results_report_pdf_to_existing(case_data, pdf):
         {case_name: results_df, ...}
     pdf : PdfPages
         Existing PDF pages object to add to
+    t_min : float, optional
+        Minimum time value to include (before offset). If None, use all data.
+    t_max : float, optional
+        Maximum time value to include (before offset). If None, use all data.
+    t_offset : float, optional
+        Offset to add to time values for display (default: 0)
     """
     # Clean column names from 'var, Description, (units)' format to just 'var'
     case_data = {name: clean_column_names(df.copy()) for name, df in case_data.items()}
@@ -601,7 +639,8 @@ def create_results_report_pdf_to_existing(case_data, pdf):
             ax_idx = idx + axes_offset
             # Check if variable exists in at least one dataset
             if any(var_name in df.columns for df in case_data.values()):
-                plot_timeseries(axes[ax_idx], case_data, var_name, ylabel, title)
+                plot_timeseries(axes[ax_idx], case_data, var_name, ylabel, title,
+                               t_min=t_min, t_max=t_max, t_offset=t_offset)
             else:
                 # Variable not found - show message
                 axes[ax_idx].text(0.5, 0.5, f'{var_name}\nnot available',
@@ -628,14 +667,21 @@ def create_results_report_pdf_to_existing(case_data, pdf):
             if var_name in log_scale_vars:
                 continue
 
-            # Check actual data range using first 90% of time points for y-axis scaling
+            # Check actual data range using filtered time points for y-axis scaling
             all_data = []
             for df in case_data.values():
                 if var_name in df.columns:
-                    # Use first 90% of time points to avoid late-time outliers (skip first time step)
-                    n_points = len(df)
+                    # Apply same time filtering as plot
+                    df_filtered = df
+                    if t_min is not None:
+                        df_filtered = df_filtered[df_filtered['t'] >= t_min]
+                    if t_max is not None:
+                        df_filtered = df_filtered[df_filtered['t'] <= t_max]
+                    # Use first 90% of filtered time points to avoid late-time outliers
+                    n_points = len(df_filtered)
                     n_points_for_ylim = int(0.9 * n_points)
-                    all_data.extend(df[var_name].values[1:n_points_for_ylim])
+                    if n_points_for_ylim > 1:
+                        all_data.extend(df_filtered[var_name].values[1:n_points_for_ylim])
 
             if not all_data:
                 continue

@@ -88,10 +88,16 @@ def main():
     results_xlsx_path = output_dir / 'results_comparison_summary.xlsx'
     create_results_comparison_xlsx(results_data, directories, results_xlsx_path)
 
-    # Generate PDF comparison report
-    print("Generating PDF comparison report...")
+    # Generate PDF comparison report (full time range)
+    print("Generating PDF comparison report (full time range)...")
     pdf_path = output_dir / 'comparison_plots.pdf'
     create_comparison_report_pdf(optimization_data, results_data, pdf_path)
+
+    # Generate PDF comparison report (2025-2100 time range)
+    print("Generating PDF comparison report (2025-2100)...")
+    pdf_path_short = output_dir / 'comparison_plots_2025-2100.pdf'
+    create_comparison_report_pdf(optimization_data, results_data, pdf_path_short,
+                                  t_min=5, t_max=80, t_offset=2020)
 
     print("\n" + "="*80)
     print("Comparison complete!")
@@ -99,6 +105,7 @@ def main():
     print(f"  Optimization workbook: {optimization_xlsx_path.name}")
     print(f"  Results workbook:      {results_xlsx_path.name}")
     print(f"  PDF report:            {pdf_path.name}")
+    print(f"  PDF report (short):    {pdf_path_short.name}")
     print("="*80)
 
 
