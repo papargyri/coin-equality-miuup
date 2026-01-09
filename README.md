@@ -11,7 +11,9 @@ A simple-as-possible stylized representation of the tradeoff between investment 
 - [Quick Start](#quick-start)
    - [Running a Basic Simulation](#running-a-basic-simulation)
    - [Running an Optimization](#running-an-optimization)
+- [Analyzing Results](#analyzing-results)
    - [Comparing Multiple Scenarios](#comparing-multiple-scenarios)
+   - [Analyzing Optimization Convergence](#analyzing-optimization-convergence)
 - [Model Overview](#model-overview)
    - [Objective Function](#objective-function)
    - [Core Components](#core-components)
@@ -88,15 +90,53 @@ python run_optimization.py test_f-f-f-t-t.json
 
 This will find the optimal time trajectory of the control variable f(t) (fraction allocated to abatement vs. redistribution) that maximizes the discounted time-integral of aggregate utility.
 
+## Analyzing Results
+
+This section covers tools for post-processing and analyzing optimization results.
+
 ### Comparing Multiple Scenarios
 
-After running multiple optimizations:
+Use `compare_results.py` to compare results across multiple optimization runs:
 
 ```bash
 python compare_results.py "data/output/scenario_*/"
 ```
 
-This generates Excel spreadsheets and PDF plots comparing results across different runs.
+The script accepts directory paths or glob patterns and generates:
+- `optimization_comparison_summary.xlsx` - Optimization metrics by iteration
+- `results_comparison_summary.xlsx` - Time series results for all variables
+- `comparison_plots.pdf` - PDF report with comparative visualizations (full time range)
+- `comparison_plots_2025-2100.pdf` - PDF report focused on 2025-2100 period
+
+Example comparing specific runs:
+```bash
+python compare_results.py data/output/config_011_f-f-f-f-f_25_1_100k_el_* data/output/config_011_t-f-t-f-f_25_1_100k_el_*
+```
+
+### Analyzing Optimization Convergence
+
+Use `compare_optimization_convergence.py` to analyze how well different optimization runs have converged:
+
+```bash
+python compare_optimization_convergence.py
+```
+
+This script:
+1. Scans `data/output/` for optimization result directories matching specified patterns
+2. Loads terminal output to extract final objective values
+3. Computes RMS differences in control trajectories (f and s) relative to baseline cases
+4. Generates a summary CSV with convergence statistics
+
+The output CSV includes:
+- Flag pattern and configuration details
+- Objective function values and departure from best result
+- RMS differences in f and s trajectories vs. baseline
+- Mean, standard deviation, and median of control variables
+
+This is useful for:
+- Identifying which runs have converged to similar solutions
+- Comparing optimization quality across different configurations
+- Detecting outlier runs that may need re-optimization
 
 ## Model Overview
 
@@ -353,6 +393,7 @@ coin_equality/
 ├── run_integration.py                 # Run forward integration from optimization results
 ├── run_parallel.py                    # Launch multiple optimizations in parallel
 ├── compare_results.py                 # Compare multiple optimization runs
+├── compare_optimization_convergence.py # Analyze optimization convergence
 ├── comparison_utils.py                # Multi-run comparison utilities
 ├── visualization_utils.py             # Unified visualization functions
 ├── test_all_flag_variants.py          # Test policy flag independence
