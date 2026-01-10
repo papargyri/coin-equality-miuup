@@ -29,17 +29,24 @@ def extract_config_info(directory_name):
     - Pattern *-f-*-f-f (position 2 and 4 must be 'f', position 5 must be 'f')
     - fract_gdp = 1 (not 0.02)
     """
-    # Pattern: config_011/012_{flags}_{n_points}_{fract_gdp}_{max_eval}_{opt}_[BOBYQA_]TIMESTAMP
-    pattern = r'config_01[12]_([tf]-[tf]-[tf]-[tf]-[tf])_\d+_([\d.]+)_(\d+k?)'
-    match = re.search(pattern, directory_name)
+    # Pattern 1: config_011/012_{flags}_{n_points}_{fract_gdp}_{max_eval}_{opt}_[BOBYQA_]TIMESTAMP
+    # Pattern 2: config_011/012_{flags}_{fract_gdp}_{max_eval}_list_TIMESTAMP (no n_points)
+    pattern_el = r'config_01[12]_([tf]-[tf]-[tf]-[tf]-[tf])_\d+_([\d.]+)_(\d+k?).*_el_'
+    pattern_list = r'config_01[12]_([tf]-[tf]-[tf]-[tf]-[tf])_([\d.]+)_(\d+k?)_list_'
+
+    match = re.search(pattern_el, directory_name)
+    is_list_format = False
+    if not match:
+        match = re.search(pattern_list, directory_name)
+        is_list_format = True
 
     if match:
         flag_pattern = match.group(1)
         fract_gdp = float(match.group(2))
         max_eval_str = match.group(3)
 
-        # Filter for _el_ directories only
-        if '_el_' not in directory_name:
+        # Filter out runs with non-standard start years (different time ranges)
+        if '_2000' in directory_name or '_1980' in directory_name or '_2010' in directory_name:
             return None, None, None
 
         # Filter for *-f-*-f-f pattern (position 2, 4, 5 must be 'f')
@@ -178,6 +185,18 @@ def load_optimization_results(output_dir='data/output'):
         # Parse optimal objective value and optimization summary
         optimal_obj = parse_optimal_objective(csv_file.parent)
         summary = parse_optimization_summary(csv_file.parent)
+
+        # Skip failed runs (objective = -1e+30 or worse)
+        if optimal_obj is not None and optimal_obj < -1e+20:
+            print(f"  Skipping failed run: {directory_name} (obj={optimal_obj})")
+            continue
+
+        # Detect and convert calendar years to relative time if needed
+        # If min(t) > 1000, assume calendar years and convert to relative time
+        if df['t'].min() > 1000:
+            t_base = 2020.0  # Assume t_base = 2020
+            df['t'] = df['t'] - t_base
+            print(f"  Converted calendar years to relative time for: {directory_name}")
 
         # Store with directory_name as unique key
         all_runs[directory_name] = {

@@ -264,6 +264,9 @@ def load_results_csvs(directories):
     Only includes cases where optimization_results.csv exists. Prints warning for
     directories missing optimization_results.csv.
 
+    If years in the data are relative (< 1000), converts them to calendar years
+    by adding 2020.
+
     Parameters
     ----------
     directories : list of Path
@@ -287,7 +290,13 @@ def load_results_csvs(directories):
         case_name = generate_case_name(directory)
         results_files = list(directory.glob('*_optimization_results.csv'))
         if results_files:
-            data[case_name] = pd.read_csv(results_files[0])
+            df = pd.read_csv(results_files[0])
+            # Convert relative years to calendar years if needed
+            # Find the 't' column (may have description suffix like "t, Time, (years)")
+            t_col = [col for col in df.columns if col.split(',')[0].strip() == 't'][0]
+            if df[t_col].min() < 1000:
+                df[t_col] = df[t_col] + 2020
+            data[case_name] = df
         else:
             print(f"Warning: optimization_results.csv not found in {directory}, skipping results comparison for this case")
 
