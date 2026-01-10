@@ -68,25 +68,6 @@ scc(t) ∝ - eco2eq.m(t) / cc.m(t)
 
 The **minus sign** is there because extra emissions reduce welfare (negative numerator) but SCC is reported as a **positive cost**.
 
-### 5) Why multiply by **1000**?
-
-This is a **unit conversion**.
-
-In DICE, consumption and output are measured in trillions of dollars, while emissions are measured in gigatons of CO₂.
-
-The ratio therefore has units of
-
-$(\text{trillion \$}) / (\text{GtCO}_2)$.
-
-Since
-$(1\ \text{trillion \$}) / (1\ \text{GtCO}_2) = 10^{12} / 10^{9} = 10^{3}$,
-
-the SCC must be multiplied by 1000 to convert from trillion dollars per gigaton to dollars per ton of CO₂.
-
-
-### 6) Why `(.00001 + cc.m(t))`?
-
-That’s just a numerical guard to avoid division-by-zero if `cc.m(t)` is extremely small for some period.
 
 ---
 
