@@ -1,5 +1,5 @@
+*Can you explain to me how social cost of carbon, scc, is calculated in this code?*
 
-\textit{Can you explain to me how social cost of carbon, scc, is calculated in this code?}
 
 In this DICE GAMS code, **SCC is computed *after* the nonlinear program is solved**, using the **dual values (marginals / Lagrange multipliers) of two equations**.
 
@@ -82,7 +82,7 @@ The **minus sign** is there because extra emissions reduce welfare (negative num
 If you want, I can also point out (in the main `.gms`) where these equations enter the full Lagrangian logic and how this relates to the “carbon price / shadow price of carbon” concept elsewhere in DICE (sometimes there’s also a carbon price variable/equation like `CPRICE`, but SCC here is coming straight from duals).
 
 
-\textis{How might the constraint provided by miuup affect the dual values used to calculated ssc?}
+*How might the constraint provided by miuup affect the dual values used to calculated ssc?*
 
 Short answer: **`miuup` can materially distort the duals used in the SCC formula, especially when it binds**, because the SCC is being inferred from *local shadow values*, and a binding control constraint changes those shadow values away from the unconstrained “Pigouvian” ones.
 
