@@ -72,17 +72,17 @@ The **minus sign** is there because extra emissions reduce welfare (negative num
 
 This is a **unit conversion**.
 
-In DICE, `C(t)` and `Y(t)` are in **trillions of dollars per year**, while emissions `ECO2(t)` are in **gigatons (GtCO₂) per year**.
+In DICE, consumption and output are measured in trillions of dollars, while emissions are measured in gigatons of CO₂.
 
-So the ratio naturally comes out as:
+The ratio therefore has units of
 
-* **(trillion $) per (GtCO₂)**
+$(\text{trillion \$}) / (\text{GtCO}_2)$.
 
-Convert to **$ per ton CO₂**:
+Since
+$(1\ \text{trillion \$}) / (1\ \text{GtCO}_2) = 10^{12} / 10^{9} = 10^{3}$,
 
-* (1 \text{ trillion $} / 1 \text{ GtCO₂} = 10^{12} / 10^{9} = 10^{3} = 1000) ($/\text{tCO₂})
+the SCC must be multiplied by 1000 to convert from trillion dollars per gigaton to dollars per ton of CO₂.
 
-That’s exactly the `*1000`.
 
 ### 6) Why `(.00001 + cc.m(t))`?
 
