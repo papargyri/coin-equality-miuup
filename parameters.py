@@ -479,12 +479,15 @@ class OptimizationParameters:
         Stops when |Δx| < xtol_abs for all parameters.
         Default: LOOSE_EPSILON (1e-10), which is appropriate for control parameters in [0,1].
         If None, uses NLopt default (0.0 = disabled).
-    n_points_final_f : int, optional
-        Target number of f control points in final iteration (only used in iterative mode).
-        If specified, refinement_base is calculated as: ((n_points_final_f - 1) / (n_points_initial_f - 1))^(1/(n_iterations - 1))
-        If None, uses refinement_base = 2.0 (default behavior: 2, 3, 5, 9, 17, ...)
+    n_points_final_f : int or list of float, optional
+        Control points for f in final iteration. Can be:
+        - int: Target number of control points (automatic geometric spacing)
+          If specified, refinement_base is calculated as: ((n_points_final_f - 1) / (n_points_initial_f - 1))^(1/(n_iterations - 1))
+          If None, uses refinement_base = 2.0 (default behavior: 2, 3, 5, 9, 17, ...)
+        - list of float: Explicit control point times in calendar years (e.g., [2020, 2030, 2050, 2100, 2200, 2420])
+          Requires optimization_iterations = 1. Times are converted internally to relative time.
         Example: n_points_final_f=17 with 5 iterations gives base ≈ 2.0
-        Example: n_points_final_f=10 with 4 iterations gives base ≈ 2.08
+        Example: n_points_final_f=[2020, 2025, 2030, 2050, 2100, 2200, 2420] uses those exact times
     n_points_initial_f : int, optional
         Number of f control points in first iteration (only used in iterative mode).
         Default: 2
@@ -494,9 +497,12 @@ class OptimizationParameters:
         Enables dual optimization of both f and s when present.
         Initial s value for all control points in first iteration.
         Must satisfy 0 ≤ s ≤ 1.
-    n_points_final_s : int, optional
-        Target number of s control points in final iteration (iterative mode only).
-        If None, uses same refinement base as f (derived from n_points_final_f and n_points_initial_f).
+    n_points_final_s : int or list of float, optional
+        Control points for s in final iteration. Can be:
+        - int: Target number of control points (automatic geometric spacing)
+          If None, uses same refinement base as f.
+        - list of float: Explicit control point times in calendar years (e.g., [2020, 2030, 2050, 2100, 2200, 2420])
+          Requires optimization_iterations = 1. Times are converted internally to relative time.
         Can differ from n_points_final_f to allow different temporal resolution for s.
     n_points_initial_s : int, optional
         Number of s control points in first iteration (only used in iterative mode).
@@ -524,14 +530,40 @@ class OptimizationParameters:
     ftol_abs: float = None
     xtol_rel: float = None
     xtol_abs: float = LOOSE_EPSILON
-    n_points_final_f: int = None
+    n_points_final_f: object = None  # int or list of float (explicit times in calendar years)
     n_points_initial_f: int = 2
     initial_guess_s: object = None  # list or float, enables dual optimization if present
-    n_points_final_s: int = None
+    n_points_final_s: object = None  # int or list of float (explicit times in calendar years)
     n_points_initial_s: int = 2
     bounds_f: list = None  # [min, max] for f, defaults to [0.0, 1.0]
     bounds_s: list = None  # [min, max] for s, defaults to [0.0, 1.0]
     optimize_time_points: bool = False
+
+    def __post_init__(self):
+        """Validate optimization parameters."""
+        # If explicit times provided (list), require optimization_iterations = 1
+        explicit_f = isinstance(self.n_points_final_f, list)
+        explicit_s = isinstance(self.n_points_final_s, list)
+
+        if explicit_f or explicit_s:
+            if self.optimization_iterations != 1:
+                raise ValueError(
+                    "Explicit control point times (list) only supported with optimization_iterations=1. "
+                    f"Got optimization_iterations={self.optimization_iterations}"
+                )
+
+            # Validate list contents
+            if explicit_f:
+                if len(self.n_points_final_f) == 0:
+                    raise ValueError("n_points_final_f list cannot be empty")
+                # Sort the list (user may have provided unsorted)
+                self.n_points_final_f = sorted(self.n_points_final_f)
+
+            if explicit_s:
+                if len(self.n_points_final_s) == 0:
+                    raise ValueError("n_points_final_s list cannot be empty")
+                # Sort the list (user may have provided unsorted)
+                self.n_points_final_s = sorted(self.n_points_final_s)
 
     def is_iterative_refinement(self):
         """

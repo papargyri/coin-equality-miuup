@@ -1355,17 +1355,27 @@ class UtilityOptimizer:
             t_start_relative = self.base_config.integration_params.t_start - t_base
             t_end_relative = self.base_config.integration_params.t_end - t_base
 
-            if n_iterations == 1:
-                n_points_f = n_points_final if n_points_final is not None else n_points_initial
+            # Check if explicit times provided (list instead of int)
+            explicit_f_times = isinstance(n_points_final, list)
+
+            if explicit_f_times:
+                # Use explicit times (convert calendar years to relative time)
+                f_control_times = np.array(n_points_final) - t_base
+                n_points_f = len(f_control_times)
+                f_r0, f_r1 = 0.0, 0.0  # Not applicable for explicit times
             else:
-                n_points_f = round(1 + (n_points_initial - 1) * refinement_base_f**(iteration - 1))
-            f_control_times, f_r0, f_r1 = calculate_control_times(
-                n_points_f,
-                t_start_relative,
-                t_end_relative,
-                self.base_config.integration_params.dt,
-                delta
-            )
+                # Current behavior - calculate times using geometric spacing
+                if n_iterations == 1:
+                    n_points_f = n_points_final if n_points_final is not None else n_points_initial
+                else:
+                    n_points_f = round(1 + (n_points_initial - 1) * refinement_base_f**(iteration - 1))
+                f_control_times, f_r0, f_r1 = calculate_control_times(
+                    n_points_f,
+                    t_start_relative,
+                    t_end_relative,
+                    self.base_config.integration_params.dt,
+                    delta
+                )
 
             if iteration == 1:
                 f_initial_guess = np.full(n_points_f, initial_guess_scalar)
@@ -1378,17 +1388,27 @@ class UtilityOptimizer:
 
             # Calculate s control points (if optimizing both f and s)
             if optimize_f_and_s:
-                if n_iterations == 1:
-                    n_points_s = n_points_final_s if n_points_final_s is not None else n_points_initial_s
+                # Check if explicit times provided for s (list instead of int)
+                explicit_s_times = isinstance(n_points_final_s, list)
+
+                if explicit_s_times:
+                    # Use explicit times (convert calendar years to relative time)
+                    s_control_times = np.array(n_points_final_s) - t_base
+                    n_points_s = len(s_control_times)
+                    s_r0, s_r1 = 0.0, 0.0  # Not applicable for explicit times
                 else:
-                    n_points_s = round(1 + (n_points_initial_s - 1) * refinement_base_s**(iteration - 1))
-                s_control_times, s_r0, s_r1 = calculate_control_times(
-                    n_points_s,
-                    t_start_relative,
-                    t_end_relative,
-                    self.base_config.integration_params.dt,
-                    delta
-                )
+                    # Current behavior - calculate times using geometric spacing
+                    if n_iterations == 1:
+                        n_points_s = n_points_final_s if n_points_final_s is not None else n_points_initial_s
+                    else:
+                        n_points_s = round(1 + (n_points_initial_s - 1) * refinement_base_s**(iteration - 1))
+                    s_control_times, s_r0, s_r1 = calculate_control_times(
+                        n_points_s,
+                        t_start_relative,
+                        t_end_relative,
+                        self.base_config.integration_params.dt,
+                        delta
+                    )
 
                 if iteration == 1:
                     s_initial_guess = np.full(n_points_s, initial_guess_s_scalar)
@@ -1407,8 +1427,11 @@ class UtilityOptimizer:
                 print(f"    (gradient-based, using numerical derivatives)")
             print(f"  Max evaluations: {iteration_max_evaluations}")
 
-            # Print spacing parameters (growth rates in segment 1 and 2)
-            print(f"  Spacing: segment 1 growth r0={f_r0:.4f}, segment 2 growth r1={f_r1:.4f}")
+            # Print spacing parameters (growth rates or explicit times indicator)
+            if explicit_f_times:
+                print(f"  Spacing: explicit control point times (user-specified)")
+            else:
+                print(f"  Spacing: segment 1 growth r0={f_r0:.4f}, segment 2 growth r1={f_r1:.4f}")
 
             print(f"\n  f (abatement fraction) - OPTIMIZED:")
             print(f"    Control points: {n_points_f}")
@@ -1418,7 +1441,10 @@ class UtilityOptimizer:
                 print(f"\n  s (savings rate) - OPTIMIZED:")
                 print(f"    Control points: {n_points_s}")
                 print(f"    Time points: {s_control_times + t_base}")
-                print(f"    Spacing: segment 1 growth r0={s_r0:.4f}, segment 2 growth r1={s_r1:.4f}")
+                if explicit_s_times:
+                    print(f"    Spacing: explicit control point times (user-specified)")
+                else:
+                    print(f"    Spacing: segment 1 growth r0={s_r0:.4f}, segment 2 growth r1={s_r1:.4f}")
             print(f"{'=' * 80}\n")
 
             # Run optimization with timing
