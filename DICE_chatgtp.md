@@ -70,45 +70,19 @@ The **minus sign** is there because extra emissions reduce welfare (negative num
 
 ### 5) Why multiply by **1000**?
 
-This is a unit conversion.
+This is a **unit conversion**.
 
-In DICE, C(t) and Y(t) are in trillions of dollars per year, while emissions ECO2(t) are in gigatons (GtCO₂) per year.
+In DICE, `C(t)` and `Y(t)` are in **trillions of dollars per year**, while emissions `ECO2(t)` are in **gigatons (GtCO₂) per year**.
 
 So the ratio naturally comes out as:
 
-(trillion $) per (GtCO₂)
+* **(trillion $) per (GtCO₂)**
 
-Convert to $ per ton CO₂:
+Convert to **$ per ton CO₂**:
 
-1
- trillion $
-/
-1
- GtCO₂
-=
-10
-12
-/
-10
-9
-=
-10
-3
-=
-1000
-1 trillion $/1 GtCO₂=10
-12
-/10
-9
-=10
-3
-=1000 
-$
-/
-tCO₂
-$/tCO₂
+* (1 \text{ trillion $} / 1 \text{ GtCO₂} = 10^{12} / 10^{9} = 10^{3} = 1000) ($/\text{tCO₂})
 
-That’s exactly the *1000.
+That’s exactly the `*1000`.
 
 ### 6) Why `(.00001 + cc.m(t))`?
 
@@ -125,6 +99,7 @@ That’s just a numerical guard to avoid division-by-zero if `cc.m(t)` is extrem
 * with a sign flip and a units conversion to **$/tCO₂**.
 
 If you want, I can also point out (in the main `.gms`) where these equations enter the full Lagrangian logic and how this relates to the “carbon price / shadow price of carbon” concept elsewhere in DICE (sometimes there’s also a carbon price variable/equation like `CPRICE`, but SCC here is coming straight from duals).
+
 
 \textis{How might the constraint provided by miuup affect the dual values used to calculated ssc?}
 
