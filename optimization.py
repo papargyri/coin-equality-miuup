@@ -1379,6 +1379,7 @@ class UtilityOptimizer:
 
             if iteration == 1:
                 f_initial_guess = np.full(n_points_f, initial_guess_scalar)
+                f_initial_guess[-1] = 0.0
             else:
                 old_f_times = iteration_f_control_grids[-1]
                 old_f_values = iteration_history[-1]['optimal_values']
@@ -1412,6 +1413,7 @@ class UtilityOptimizer:
 
                 if iteration == 1:
                     s_initial_guess = np.full(n_points_s, initial_guess_s_scalar)
+                    s_initial_guess[-1] = 0.0
                 else:
                     old_s_times = iteration_s_control_grids[-1]
                     old_s_values = iteration_history[-1]['s_optimal_values']

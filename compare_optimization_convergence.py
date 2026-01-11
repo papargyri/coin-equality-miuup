@@ -2,14 +2,24 @@
 """
 Compare optimization convergence across different max_evaluations settings.
 
-Analyzes control variables (f and s) from config_011/012_*-f-*-f-f_* optimization results to compare:
+Analyzes control variables (f and s) from optimization results to compare:
 - Statistics (mean, std, median) for different iteration counts
 - RMS differences relative to best objective value baseline (greatest = least negative)
 - Two time periods: [0, 400] and [5, 80]
 - Groups results by flag patterns with independent baseline selection per group
+
+Usage:
+    ./compare_optimization_convergence.py [directory_patterns...]
+
+Examples:
+    ./compare_optimization_convergence.py                           # Use default: data/output/*
+    ./compare_optimization_convergence.py data/output/config_013*   # Only config_013 runs
+    ./compare_optimization_convergence.py data/output/config_011* data/output/config_012*
 """
 
 import sys
+import argparse
+import glob
 import pandas as pd
 import numpy as np
 from pathlib import Path
@@ -19,44 +29,24 @@ def extract_config_info(directory_name):
     """
     Extract flag pattern, max_evaluations, and algorithm from directory name.
 
-    Example: config_011_f-f-t-f-f_10_1_1000_el_20260106-070053 or config_012_...
-    Returns: ('f-f-t-f-f', 1000, 'SBPLX') or (None, None, None) if doesn't match filter criteria
+    Handles multiple directory name formats:
+    - config_NNN_{flags}_{n_points}_{fract_gdp}_{max_eval}_{opt}_[BOBYQA_]TIMESTAMP
+    - config_NNN_{flags}_{fract_gdp}_{max_eval}_list[N]_TIMESTAMP
 
-    Example: config_011_f-f-t-f-f_10_1_1000_el_BOBYQA_20260106-070053 or config_012_...
-    Returns: ('f-f-t-f-f', 1000, 'BOBYQA')
-
-    Only returns data for:
-    - Pattern *-f-*-f-f (position 2 and 4 must be 'f', position 5 must be 'f')
-    - fract_gdp = 1 (not 0.02)
+    Returns: (flag_pattern, max_eval, algorithm) or (None, None, None) if cannot parse
     """
-    # Pattern 1: config_011/012_{flags}_{n_points}_{fract_gdp}_{max_eval}_{opt}_[BOBYQA_]TIMESTAMP
-    # Pattern 2: config_011/012_{flags}_{fract_gdp}_{max_eval}_list_TIMESTAMP (no n_points)
-    pattern_el = r'config_01[12]_([tf]-[tf]-[tf]-[tf]-[tf])_\d+_([\d.]+)_(\d+k?).*_el_'
-    pattern_list = r'config_01[12]_([tf]-[tf]-[tf]-[tf]-[tf])_([\d.]+)_(\d+k?)_list_'
+    # Pattern 1: config_NNN_{flags}_{n_points}_{fract_gdp}_{max_eval}_{opt}_[BOBYQA_]TIMESTAMP
+    pattern_el = r'config_\d+_([tf]-[tf]-[tf]-[tf]-[tf])_\d+_([\d.]+)_(\d+k?).*_el_'
+    # Pattern 2: config_NNN_{flags}_{fract_gdp}_{max_eval}_list[N]_TIMESTAMP (no n_points)
+    pattern_list = r'config_\d+_([tf]-[tf]-[tf]-[tf]-[tf])_([\d.]+)_(\d+k?)_list'
 
     match = re.search(pattern_el, directory_name)
-    is_list_format = False
     if not match:
         match = re.search(pattern_list, directory_name)
-        is_list_format = True
 
     if match:
         flag_pattern = match.group(1)
-        fract_gdp = float(match.group(2))
         max_eval_str = match.group(3)
-
-        # Filter out runs with non-standard start years (different time ranges)
-        if '_2000' in directory_name or '_1980' in directory_name or '_2010' in directory_name:
-            return None, None, None
-
-        # Filter for *-f-*-f-f pattern (position 2, 4, 5 must be 'f')
-        flags = flag_pattern.split('-')
-        if flags[1] != 'f' or flags[3] != 'f' or flags[4] != 'f':
-            return None, None, None
-
-        # Filter for fract_gdp = 1 (not 0.02)
-        if abs(fract_gdp - 1.0) > 0.01:  # Allow small floating point error
-            return None, None, None
 
         # Convert k suffix to thousands
         if max_eval_str.endswith('k'):
@@ -145,9 +135,14 @@ def parse_optimization_summary(output_dir):
 
     return summary
 
-def load_optimization_results(output_dir='data/output'):
+def load_optimization_results(directory_patterns):
     """
-    Load all optimization results from output directory.
+    Load all optimization results from directories matching patterns.
+
+    Parameters
+    ----------
+    directory_patterns : list of str
+        List of glob patterns for directories to search (e.g., ['data/output/config_013*'])
 
     Returns
     -------
@@ -161,10 +156,17 @@ def load_optimization_results(output_dir='data/output'):
         - 'summary': dict with iterations_performed, total_evaluations, etc.
     """
     all_runs = {}
-    output_path = Path(output_dir)
 
-    # Find all optimization_results.csv files
-    csv_files = list(output_path.glob('*/*_optimization_results.csv'))
+    # Expand all patterns and find optimization_results.csv files
+    csv_files = []
+    for pattern in directory_patterns:
+        # Expand the glob pattern to get directories
+        matching_dirs = glob.glob(pattern)
+        for dir_path in matching_dirs:
+            dir_path = Path(dir_path)
+            if dir_path.is_dir():
+                # Look for optimization_results.csv files in this directory
+                csv_files.extend(dir_path.glob('*_optimization_results.csv'))
 
     print(f"Found {len(csv_files)} optimization results files")
 
@@ -299,14 +301,39 @@ def compute_rms_difference(df1, df2, time_period, variables=['f', 's']):
 
     return rms
 
+def parse_arguments():
+    """Parse command-line arguments."""
+    parser = argparse.ArgumentParser(
+        description='Compare optimization convergence across different runs.',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+    %(prog)s                                    # Use default: data/output/*
+    %(prog)s data/output/config_013*            # Only config_013 runs
+    %(prog)s data/output/config_011* data/output/config_012*
+    %(prog)s 'data/output/*_f-f-t-f-f_*'        # Quote patterns with special chars
+        """
+    )
+    parser.add_argument(
+        'directories',
+        nargs='*',
+        default=['data/output/*'],
+        help='Directory patterns to search (default: data/output/*)'
+    )
+    return parser.parse_args()
+
+
 def main():
     """Main analysis function."""
+    args = parse_arguments()
+
     print("="*80)
     print("OPTIMIZATION CONVERGENCE ANALYSIS")
     print("="*80)
+    print(f"Directory patterns: {args.directories}")
 
     # Load all results (keyed by directory name)
-    all_runs = load_optimization_results()
+    all_runs = load_optimization_results(args.directories)
 
     if not all_runs:
         print("ERROR: No results found!")
