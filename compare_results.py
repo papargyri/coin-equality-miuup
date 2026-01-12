@@ -13,12 +13,13 @@ Arguments:
 Outputs:
     optimization_comparison_summary.xlsx - Optimization metrics by iteration
     results_comparison_summary.xlsx      - Time series results for all variables
-    comparison_plots.pdf                 - PDF report with comparative visualizations
+    comparison_plots.pdf                 - PDF report with comparative visualizations (full time range)
+    comparison_plots_2025-2100.pdf       - PDF report focused on 2025-2100 period
 
 Examples:
-    python compare_results.py results/baseline/ results/sensitivity/
-    python compare_results.py "results/test_*_000/"
-    python compare_results.py results/run_* results/baseline/
+    python compare_results.py data/output/config_014_*_1_100k_list
+    python compare_results.py "data/output/scenario_*/"
+    python compare_results.py data/output/config_011_f-f-f-f-f_* data/output/config_011_t-f-t-f-f_*
 """
 
 import sys
@@ -51,9 +52,9 @@ def main():
         print("\nArguments:")
         print("  path1, path2, ...: Directory paths or glob patterns (unlimited)")
         print("\nExamples:")
-        print('  python compare_results.py results/baseline/ results/sensitivity/')
-        print('  python compare_results.py "results/test_*_000/"')
-        print('  python compare_results.py results/run_* results/baseline/')
+        print('  python compare_results.py data/output/config_014_*_1_100k_list')
+        print('  python compare_results.py "data/output/scenario_*/"')
+        print('  python compare_results.py data/output/config_011_f-f-f-f-f_* data/output/config_011_t-f-t-f-f_*')
         sys.exit(1)
 
     path_patterns = sys.argv[1:]

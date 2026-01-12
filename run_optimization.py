@@ -1,12 +1,11 @@
 """
-Test script for optimization with single or multiple control points.
+Main optimization script for climate-economy model.
 
-This script demonstrates the complete workflow:
-1. Load baseline configuration
-2. Perform sensitivity analysis (for single control point only)
-3. Run optimization (handles both single and multiple control points)
-4. Compare optimal vs. arbitrary constant allocations (for single control point)
-5. Generate visualization plots
+This script runs the complete optimization workflow:
+1. Load configuration from JSON file
+2. Run optimization with iterative refinement (handles both single and multiple control points)
+3. Run forward integration with optimized controls
+4. Generate output files (CSV results, optimization summary, PDF visualizations)
 """
 
 import sys
@@ -126,9 +125,9 @@ def parse_arguments():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python test_optimization.py config_baseline.json
-  python test_optimization.py config_baseline.json --scalar_parameters.alpha 0.35
-  python test_optimization.py config_baseline.json --optimization_parameters.initial_guess_f 0.3 --run_name "test_run"
+  python run_optimization.py config_baseline.json
+  python run_optimization.py config_baseline.json --scalar_parameters.alpha 0.35
+  python run_optimization.py config_baseline.json --optimization_parameters.initial_guess_f 0.3 --run_name "test_run"
 
 Override format:
   --key.subkey.subsubkey value
@@ -665,7 +664,7 @@ def main():
     elapsed_time = time.time() - start_time
     print(f"\nTotal runtime: {elapsed_time:.2f} seconds ({elapsed_time/60:.2f} minutes)")
 
-    print_header("OPTIMIZATION TEST COMPLETE")
+    print_header("OPTIMIZATION COMPLETE")
 
     # Close output file and restore original stdout/stderr
     if isinstance(sys.stdout, TeeOutput):
