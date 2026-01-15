@@ -83,3 +83,30 @@ EMPIRICAL_LORENZ_BASE_GINI = 1.0 - 2.0 * (
     EMPIRICAL_LORENZ_W2 / (EMPIRICAL_LORENZ_P2 + 1.0) +
     EMPIRICAL_LORENZ_W3 / (EMPIRICAL_LORENZ_P3 + 1.0)
 )
+
+# =============================================================================
+# DICE-style miuup (μ upper bound) constants
+# =============================================================================
+# These constants define the DICE-2023 schedule for the time-varying upper bound
+# on the abatement fraction μ. The schedule uses 5-year periods with linear
+# interpolation for yearly values.
+
+# Increment in μ_up per period for p >= 3 (until plateau)
+# For p >= 3: μ_up = MIUUP_DELMIUMAX * (p - 1)
+MIUUP_DELMIUMAX = 0.12
+
+# μ_up value at period 1 (years 2020-2024)
+MIUUP_P1_VALUE = 0.05
+
+# μ_up value at period 2 (years 2025-2029)
+MIUUP_P2_VALUE = 0.10
+
+# Period where the plateau formula kicks in (p > 8)
+# For p > 8: μ_up = 0.85 + 0.05 * (p - 8)
+MIUUP_PLATEAU_START_PERIOD = 8
+
+# Base value at start of plateau (at p=8+1=9)
+MIUUP_PLATEAU_BASE = 0.85
+
+# Increment per period after plateau start
+MIUUP_PLATEAU_INCREMENT = 0.05

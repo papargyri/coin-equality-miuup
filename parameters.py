@@ -345,6 +345,23 @@ class ScalarParameters:
         Base year for time-dependent functions. Time functions receive (t - t_base)
         so they can be parameterized for relative time (0 = base year).
         Default: 2020.0
+    use_miuup_cap : bool
+        If True, enforce DICE-style time-varying upper bound on abatement fraction μ.
+        Default: False (no cap, backward compatible)
+    miuup_start_year : int
+        First year of DICE period 1 for miuup schedule. Default: 2020
+    miuup_period_years : int
+        Length of each DICE period in years. Default: 5
+    miuup_mode : str
+        Miuup schedule mode. Currently only "dice2023_default" supported.
+    miuup_interpolation : str
+        Interpolation method for yearly values: "linear" or "stepwise".
+        Default: "linear"
+    cap_slack_allocation : str
+        How to allocate slack budget when cap binds:
+        - "consumption": slack goes to consumption (default)
+        - "redistribution": slack added to redistribution transfers
+        - "unallocated": slack removed from economy
     """
     alpha: float
     delta: float
@@ -367,6 +384,13 @@ class ScalarParameters:
     t_base: float = 2020.0  # Base year for time functions (functions receive t - t_base)
     mu_max: float = None  # Will be set to INVERSE_EPSILON in __post_init__ if None
     Ecum_initial: float = 0.0  # Default to zero (no prior emissions)
+    # Miuup cap configuration (DICE-style time-varying μ upper bound)
+    use_miuup_cap: bool = False  # If True, enforce miuup cap on abatement fraction
+    miuup_start_year: int = 2020  # First year of DICE period 1
+    miuup_period_years: int = 5  # Length of each DICE period
+    miuup_mode: str = "dice2023_default"  # Miuup schedule mode
+    miuup_interpolation: str = "linear"  # Interpolation method: "linear" or "stepwise"
+    cap_slack_allocation: str = "consumption"  # Where slack goes: "consumption", "redistribution", "unallocated"
 
     def __post_init__(self):
         """Set default for mu_max if not provided."""
