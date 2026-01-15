@@ -1,6 +1,6 @@
 # COIN_equality
 
-A simple-as-possible stylized representation of the tradeoff between investment in income redistribution versus investment in emissions abatement.
+A simple-as-possible stylized representation of the tradeoff between investment in income redistribution versus investment in emissions abatement. 
 
 ## Table of Contents
 
