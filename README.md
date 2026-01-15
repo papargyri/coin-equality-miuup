@@ -273,20 +273,30 @@ The model has 5 boolean switches controlling different policy features. Three ar
 
 **Important**: The code automatically enforces these dependencies. Sub-switches are only evaluated when their parent switch is enabled, ensuring logically consistent behavior.
 
-### DICE-Style Abatement Cap (miuup)
+### Abatement Cap (mu_up)
 
-The model supports a time-varying upper bound on the abatement fraction μ, following the DICE-2023 schedule. This cap limits how much abatement can occur in early years, reflecting technological and political constraints on rapid decarbonization.
+The model supports a time-varying upper bound on the abatement fraction μ. This cap limits how much abatement can occur at different times, reflecting technological and political constraints on rapid decarbonization.
 
 #### Enabling the Cap
 
-Set `use_miuup_cap` to `true` in the `scalar_parameters` section:
+Set `use_mu_up` to `true` and provide a `mu_up_schedule` in the `scalar_parameters` section:
 
 ```json
 "scalar_parameters": {
-    "use_miuup_cap": true,
-    "miuup_start_year": 2020,
-    "miuup_period_years": 5,
-    "miuup_interpolation": "linear",
+    "use_mu_up": true,
+    "mu_up_schedule": [
+        [2020.0, 0.05],
+        [2025.0, 0.10],
+        [2030.0, 0.12],
+        [2060.0, 0.9],
+        [2070.0, 1.0],
+        [2119.999, 1.0],
+        [2120.0, 1.1],
+        [2200.0, 1.1],
+        [2200.001, 1.05],
+        [2300.0, 1.05],
+        [2300.001, 1.0]
+    ],
     "cap_slack_allocation": "consumption"
 }
 ```
@@ -295,26 +305,24 @@ Set `use_miuup_cap` to `true` in the `scalar_parameters` section:
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `use_miuup_cap` | bool | `false` | Enable/disable the DICE-style μ cap |
-| `miuup_start_year` | int | `2020` | First year of DICE period 1 |
-| `miuup_period_years` | int | `5` | Length of each DICE period in years |
-| `miuup_interpolation` | str | `"linear"` | Interpolation method: `"linear"` or `"stepwise"` |
+| `use_mu_up` | bool | `false` | Enable/disable the μ cap |
+| `mu_up_schedule` | list | (required) | List of `[year, mu_cap]` pairs defining the cap schedule |
 | `cap_slack_allocation` | str | `"consumption"` | Where unused budget goes when cap binds |
 
-#### DICE-2023 Schedule
+#### Schedule Format
 
-The μ cap follows the DICE-2023 schedule at 5-year period boundaries:
+The `mu_up_schedule` is a list of `[year, mu_cap]` pairs:
+- **Linear interpolation** between points
+- **Flat extrapolation** outside the range (before first point uses first value, after last point uses last value)
+- Points should be sorted by year (ascending)
 
-| Period | Years | μ_cap |
-|--------|-------|-------|
-| p=1 | 2020-2024 | 0.05 |
-| p=2 | 2025-2029 | 0.10 |
-| p=3 | 2030-2034 | 0.24 |
-| p=4 | 2035-2039 | 0.36 |
-| ... | ... | 0.12 × (p-1) |
-| p>8 | 2060+ | 0.85 + 0.05 × (p-8) |
+Example interpretation:
+- Year 2020: μ_cap = 0.05
+- Year 2022.5: μ_cap = 0.075 (interpolated between 2020→0.05 and 2025→0.10)
+- Year 2010: μ_cap = 0.05 (uses first value for years before schedule)
+- Year 2400: μ_cap = 1.0 (uses last value for years after schedule)
 
-With `miuup_interpolation: "linear"`, yearly values are linearly interpolated between period boundaries. For example, μ_cap in 2022 = 0.07 (interpolated between 0.05 at 2020 and 0.10 at 2025).
+Values above 1.0 allow carbon dioxide removal (negative emissions).
 
 #### Slack Allocation
 

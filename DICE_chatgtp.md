@@ -82,21 +82,21 @@ The **minus sign** is there because extra emissions reduce welfare (negative num
 If you want, I can also point out (in the main `.gms`) where these equations enter the full Lagrangian logic and how this relates to the “carbon price / shadow price of carbon” concept elsewhere in DICE (sometimes there’s also a carbon price variable/equation like `CPRICE`, but SCC here is coming straight from duals).
 
 
-*How might the constraint provided by miuup affect the dual values used to calculated ssc?*
+*How might the constraint provided by mu_up affect the dual values used to calculated ssc?*
 
-Short answer: **`miuup` can materially distort the duals used in the SCC formula, especially when it binds**, because the SCC is being inferred from *local shadow values*, and a binding control constraint changes those shadow values away from the unconstrained “Pigouvian” ones.
+Short answer: **`mu_up` can materially distort the duals used in the SCC formula, especially when it binds**, because the SCC is being inferred from *local shadow values*, and a binding control constraint changes those shadow values away from the unconstrained “Pigouvian” ones.
 
 Here’s the structured explanation.
 
 ---
 
-## 1. What `miuup` is doing conceptually
+## 1. What `mu_up` is doing conceptually
 
 In DICE, `MIU(t)` is the emissions control rate (abatement fraction).
 A constraint like
 
 ```gams
-MIU(t) =L= miuup(t)
+MIU(t) =L= mu_up(t)
 ```
 
 imposes an **upper bound on abatement**.
@@ -128,11 +128,11 @@ These are **Lagrange multipliers of equilibrium constraints**, not structural da
 
 ---
 
-## 3. What happens when `miuup` is *not binding*
+## 3. What happens when `mu_up` is *not binding*
 
-If `MIU(t) < miuup(t)` at the solution:
+If `MIU(t) < mu_up(t)` at the solution:
 
-* The `miuup` constraint has **zero shadow value**
+* The `mu_up` constraint has **zero shadow value**
 * The FOCs with respect to `MIU(t)` are the usual interior ones
 * Emissions are at their welfare-optimal level
 
@@ -141,13 +141,13 @@ In this case:
 * `eco2eq.m(t)` reflects the *true marginal damage of emissions*
 * SCC corresponds to the standard Pigouvian SCC
 
-➡️ **No distortion** from `miuup`.
+➡️ **No distortion** from `mu_up`.
 
 ---
 
-## 4. What happens when `miuup` *binds*
+## 4. What happens when `mu_up` *binds*
 
-If `MIU(t) = miuup(t)`:
+If `MIU(t) = mu_up(t)`:
 
 * The constraint has a **positive shadow price**
 * The planner *wants* more abatement but is prevented
@@ -159,7 +159,7 @@ This changes the duals in two important ways.
 
 ## 5. Effect on `eco2eq.m(t)` (numerator of SCC)
 
-When `miuup` binds:
+When `mu_up` binds:
 
 * The marginal damage of emissions is **partially absorbed by the binding MIU constraint**
 * The Lagrange multiplier on `eco2eq` no longer reflects the *full* welfare cost of emissions
@@ -202,7 +202,7 @@ the ratio
 
 is typically:
 
-➡️ **biased downward when `miuup` binds**
+➡️ **biased downward when `mu_up` binds**
 
 That is:
 
@@ -211,9 +211,9 @@ That is:
 
 ---
 
-## 8. Interpretation: what SCC means when `miuup` binds
+## 8. Interpretation: what SCC means when `mu_up` binds
 
-When `miuup` is binding, the SCC in this code should be interpreted as:
+When `mu_up` is binding, the SCC in this code should be interpreted as:
 
 > “The marginal value of reducing emissions *given that further abatement is infeasible*.”
 
@@ -238,15 +238,15 @@ Then this SCC is internally consistent and meaningful.
 
 Then you should:
 
-* Ensure `miuup` is slack in the periods used
+* Ensure `mu_up` is slack in the periods used
 * Or compute SCC via a perturbation experiment
-* Or solve a relaxed model (temporarily remove or loosen `miuup`) and extract SCC there
+* Or solve a relaxed model (temporarily remove or loosen `mu_up`) and extract SCC there
 
 ---
 
 ## 10. One-sentence takeaway
 
-**A binding `miuup` constraint causes the SCC computed from duals to become a second-best, downward-biased shadow price that reflects abatement infeasibility rather than the true marginal damage of emissions.**
+**A binding `mu_up` constraint causes the SCC computed from duals to become a second-best, downward-biased shadow price that reflects abatement infeasibility rather than the true marginal damage of emissions.**
 
 If you want, I can also:
 

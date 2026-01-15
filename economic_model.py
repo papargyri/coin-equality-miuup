@@ -21,7 +21,8 @@ from distribution_utilities import (
 )
 from parameters import evaluate_params_at_time
 from constants import EPSILON, LOOSE_EPSILON, NEG_BIGNUM, EMPIRICAL_LORENZ_BASE_GINI
-from miuup import get_miuup_at_year, invert_abatement_cost
+from mu_up import get_mu_up_from_schedule, invert_abatement_cost
+from mu_up import print_mu_up_schedule
 
 def gini_from_distribution(values_yi, Fi_edges, Fwi):
     """
@@ -154,8 +155,7 @@ def calculate_tendencies(state, params,
                         omega_Fmin_Omega_base_ratio_prev, omega_yi_Omega_base_ratio_prev, omega_Fmax_Omega_base_ratio_prev,
                         Fmin_prev, Fmax_prev,
                         Omega_Omega_base_ratio_prev,
-                        xi, xi_edges, wi, store_detailed_output=True,
-                        miuup_params=None):
+                        xi, xi_edges, wi, store_detailed_output):
     """
     Calculate time derivatives and all derived variables.
 
@@ -392,13 +392,6 @@ def calculate_tendencies(state, params,
         omega_Fmin = 0.0
         omega_Fmax = 0.0
         omega_region2 = np.zeros_like(xi)
-        # Miuup diagnostic variables for collapsed economy
-        mu_uncapped = 0.0
-        abateCost_proposed = 0.0
-        abateCost_effective = 0.0
-        cap_binding = False
-        cap_slack = 0.0
-        mu_cap = 1.0  # No cap when economy collapsed
     else:
         # Economy exists - proceed with calculations
 
@@ -758,81 +751,14 @@ def calculate_tendencies(state, params,
         epot = sigma * y_gross
 
         # Eq 1.6: Abatement fraction (compute uncapped value first)
-        abateCost_proposed = abateCost_amount  # Store original proposed cost
         if epot > 0 and abateCost_amount > 0:
-            mu_uncapped = min(mu_max, (abateCost_amount * theta2 / (epot * theta1)) ** (1 / theta2))
+            mu = min(mu_max, (abateCost_amount * theta2 / (epot * theta1)) ** (1 / theta2))
         else:
-            mu_uncapped = 0.0
-
-        # Apply miuup cap if enabled
-        cap_binding = False
-        cap_slack = 0.0
-        mu_cap = 1.0  # Default: no cap (will be overwritten if cap enabled)
-        abateCost_effective = abateCost_proposed
-
-        if miuup_params is not None and miuup_params['use_miuup_cap']:
-            # Get calendar year from params (t is calendar year in COIN)
-            calendar_year = params['t']
-
-            # Compute mu_cap for this year using DICE schedule with linear interpolation
-            mu_cap = get_miuup_at_year(
-                calendar_year,
-                miuup_params['miuup_start_year'],
-                miuup_params['miuup_period_years'],
-                miuup_params['miuup_interpolation']
-            )
-
-            # Final μ: apply all caps (mu_cap, mu_max, and absolute cap of 1.0)
-            effective_cap = min(mu_cap, mu_max, 1.0)
-            mu_final = max(0.0, min(mu_uncapped, effective_cap))
-
-            # Check if cap is binding (with small tolerance for numerical precision)
-            if mu_uncapped > effective_cap + LOOSE_EPSILON:
-                cap_binding = True
-
-                # NO-WASTE: Recompute effective abatement cost from capped μ by inverting Eq 1.6
-                if epot > 0 and mu_final > 0:
-                    abateCost_effective = invert_abatement_cost(mu_final, epot, theta1, theta2)
-                    # Ensure effective cost doesn't exceed proposed (numerical safety)
-                    abateCost_effective = min(abateCost_effective, abateCost_proposed)
-                else:
-                    abateCost_effective = 0.0
-
-                # Compute slack (unused budget)
-                cap_slack = abateCost_proposed - abateCost_effective
-
-                # Handle slack allocation based on config
-                cap_slack_allocation = miuup_params['cap_slack_allocation']
-                if cap_slack_allocation == "consumption":
-                    # Do nothing special - slack automatically increases consumption
-                    # because we use abateCost_effective (smaller) in accounting
-                    pass
-                elif cap_slack_allocation == "redistribution":
-                    # Add slack to redistribution (only if redistribution is active)
-                    if income_redistribution:
-                        redistribution_amount = redistribution_amount + cap_slack
-                    # If redistribution not active, slack falls back to consumption
-                elif cap_slack_allocation == "unallocated":
-                    # Track as unused budget (for bookkeeping)
-                    # The slack is simply not spent on anything
-                    pass
-
-                # Update abateCost_amount to effective value for downstream accounting
-                abateCost_amount = abateCost_effective
-                # Recalculate lambda_abate with effective cost
-                lambda_abate = abateCost_amount / y_damaged_calc if y_damaged_calc > EPSILON else 0.0
-
-            mu = mu_final
-        else:
-            # No cap - use uncapped value
-            mu = mu_uncapped
+            mu = 0.0
 
         # Eq 2.3: Actual emissions per capita (after abatement)
         e = sigma * (1 - mu) * y_gross
     
-
-
-
         # Eq 1.10: Capital tendency
         dK_dt = s * y_net * L - delta * K
 
@@ -878,13 +804,8 @@ def calculate_tendencies(state, params,
             'utility_yi': utility_yi,
             's': s,
             'dK_dt': dK_dt,
-            # Miuup cap diagnostics
-            'mu_uncapped': mu_uncapped,
-            'mu_cap': mu_cap,
-            'cap_binding': 1.0 if cap_binding else 0.0,
-            'abateCost_proposed': abateCost_proposed,
-            'abateCost_effective': abateCost_effective,
-            'cap_slack': cap_slack,
+            # Mu_up cap diagnostics
+            'mu_max': mu_max,
         })
 
     # Always return minimal variables needed for optimization
@@ -966,22 +887,13 @@ def integrate_model(config, store_detailed_output=True):
     dt = config.integration_params.dt
     n_quad = config.integration_params.n_quad
 
-    # Build miuup_params dict from scalar_params for passing to calculate_tendencies
+    # Build mu_up_params dict from scalar_params for passing to calculate_tendencies
     sp = config.scalar_params
-    miuup_params = {
-        'use_miuup_cap': sp.use_miuup_cap,
-        'miuup_start_year': sp.miuup_start_year,
-        'miuup_period_years': sp.miuup_period_years,
-        'miuup_mode': sp.miuup_mode,
-        'miuup_interpolation': sp.miuup_interpolation,
+    mu_up_params = {
+        'use_mu_up': sp.use_mu_up,
+        'mu_up_schedule': sp.mu_up_schedule,
         'cap_slack_allocation': sp.cap_slack_allocation,
     }
-
-    # Print miuup schedule verification if cap is enabled
-    if sp.use_miuup_cap:
-        from miuup import print_miuup_schedule
-        print_miuup_schedule(int(t_start), min(int(t_start) + 11, int(t_end)),
-                           sp.miuup_period_years, sp.miuup_interpolation)
 
     # Create time array
     t_array = np.arange(t_start, t_end + dt, dt)
@@ -1051,7 +963,7 @@ def integrate_model(config, store_detailed_output=True):
             'y_net_yi': np.zeros((n_steps, n_quad)),
             'omega_yi': np.zeros((n_steps, n_quad)),
             'utility_yi': np.zeros((n_steps, n_quad)),
-            # Miuup cap diagnostics
+            # Mu_up cap diagnostics
             'mu_uncapped': np.zeros(n_steps),
             'mu_cap': np.zeros(n_steps),
             'cap_binding': np.zeros(n_steps),
@@ -1096,7 +1008,7 @@ def integrate_model(config, store_detailed_output=True):
                                       Fmin_prev, Fmax_prev,
                                       Omega_Omega_base_ratio_prev,
                                       xi, xi_edges, wi, store_detailed_output,
-                                      miuup_params=miuup_params)
+                                      mu_up_params=mu_up_params)
 
         # Always store variables needed for objective function
         results['U'][i] = outputs['U']
@@ -1155,7 +1067,7 @@ def integrate_model(config, store_detailed_output=True):
             # Store tendencies
             results['dK_dt'][i] = outputs['dK_dt']
 
-            # Store miuup cap diagnostics
+            # Store mu_up cap diagnostics
             results['mu_uncapped'][i] = outputs['mu_uncapped']
             results['mu_cap'][i] = outputs['mu_cap']
             results['cap_binding'][i] = outputs['cap_binding']

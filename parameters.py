@@ -345,18 +345,14 @@ class ScalarParameters:
         Base year for time-dependent functions. Time functions receive (t - t_base)
         so they can be parameterized for relative time (0 = base year).
         Default: 2020.0
-    use_miuup_cap : bool
-        If True, enforce DICE-style time-varying upper bound on abatement fraction μ.
+    use_mu_up : bool
+        If True, enforce time-varying upper bound on abatement fraction μ.
         Default: False (no cap, backward compatible)
-    miuup_start_year : int
-        First year of DICE period 1 for miuup schedule. Default: 2020
-    miuup_period_years : int
-        Length of each DICE period in years. Default: 5
-    miuup_mode : str
-        Miuup schedule mode. Currently only "dice2023_default" supported.
-    miuup_interpolation : str
-        Interpolation method for yearly values: "linear" or "stepwise".
-        Default: "linear"
+    mu_up_schedule : list of [year, mu_cap] pairs
+        User-defined schedule for μ upper bound. Each entry is [year, mu_cap].
+        Linear interpolation between points; flat extrapolation outside range.
+        Example: [[2020, 0.05], [2025, 0.10], [2060, 0.9], [2070, 1.0]]
+        Required when use_mu_up is True.
     cap_slack_allocation : str
         How to allocate slack budget when cap binds:
         - "consumption": slack goes to consumption (default)
@@ -384,12 +380,9 @@ class ScalarParameters:
     t_base: float = 2020.0  # Base year for time functions (functions receive t - t_base)
     mu_max: float = None  # Will be set to INVERSE_EPSILON in __post_init__ if None
     Ecum_initial: float = 0.0  # Default to zero (no prior emissions)
-    # Miuup cap configuration (DICE-style time-varying μ upper bound)
-    use_miuup_cap: bool = False  # If True, enforce miuup cap on abatement fraction
-    miuup_start_year: int = 2020  # First year of DICE period 1
-    miuup_period_years: int = 5  # Length of each DICE period
-    miuup_mode: str = "dice2023_default"  # Miuup schedule mode
-    miuup_interpolation: str = "linear"  # Interpolation method: "linear" or "stepwise"
+    # Mu_up cap configuration (DICE-style time-varying μ upper bound)
+    use_mu_up: bool = False  # If True, enforce mu_up cap on abatement fraction
+    mu_up_schedule: list = None  # List of [year, mu_cap] pairs for user-defined schedule
     cap_slack_allocation: str = "consumption"  # Where slack goes: "consumption", "redistribution", "unallocated"
 
     def __post_init__(self):

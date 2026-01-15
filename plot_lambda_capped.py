@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Plot Lambda (Abatement Cost as % of Output) for capped miuup scenarios.
+Plot Lambda (Abatement Cost as % of Output) for capped mu_up scenarios.
 
 Creates a comparison plot of Lambda = AbateCost / Y_damaged for 4 scenarios:
   A) Uniform climate damage + Uniform tax
@@ -9,17 +9,17 @@ Creates a comparison plot of Lambda = AbateCost / Y_damaged for 4 scenarios:
   D) Income-dependent climate damage + Progressive tax
 
 All scenarios run with:
-  - use_miuup_cap = True
+  - use_mu_up_cap = True
   - cap_slack_allocation = "consumption"
   - dt = 1 (yearly integration)
   - 400 year horizon (2020-2420)
 
-NOTE: When miuup cap is binding (which happens most of the time with the DICE
+NOTE: When mu_up cap is binding (which happens most of the time with the DICE
 schedule), the Lambda values are determined by the cap schedule, not by the
 scenario-specific damage/tax policy settings. This means all scenarios will
 show nearly identical Lambda curves when the cap is binding. The scenarios
 differ in OTHER variables (welfare, emissions path, etc.) but Lambda under
-a binding cap is essentially dictated by the DICE miuup schedule.
+a binding cap is essentially dictated by the DICE mu_up schedule.
 
 Usage:
     python plot_lambda_capped.py [--run] [--output-dir DIR]
@@ -85,7 +85,7 @@ SCENARIOS = {
 # =============================================================================
 
 def run_scenario(scenario_key, output_dir):
-    """Run a single scenario with miuup cap enabled."""
+    """Run a single scenario with mu_up cap enabled."""
     scenario = SCENARIOS[scenario_key]
     print(f"\n{'='*60}")
     print(f"Running Scenario {scenario_key}: {scenario['name']}")
@@ -94,8 +94,8 @@ def run_scenario(scenario_key, output_dir):
     # Load base config
     config = load_configuration(scenario['config'])
 
-    # Enable miuup cap
-    config.scalar_params.use_miuup_cap = True
+    # Enable mu_up cap
+    config.scalar_params.use_mu_up_cap = True
     config.scalar_params.cap_slack_allocation = "consumption"
 
     # Override flags if needed (in case config doesn't match)
@@ -202,15 +202,15 @@ def plot_lambda_comparison(all_results, output_dir, time_range=None):
 
     ax.set_xlabel('Year', fontsize=12)
     ax.set_ylabel('Abatement Cost (% of Output)', fontsize=12)
-    ax.set_title('Lambda: Abatement Cost (% of Output)\n[with DICE-style miuup cap]',
+    ax.set_title('Lambda: Abatement Cost (% of Output)\n[with DICE-style mu_up cap]',
                 fontsize=14, fontweight='bold')
 
     ax.set_xlim(time_range)
     ax.grid(True, alpha=0.3)
     ax.legend(loc='upper right', fontsize=10)
 
-    # Add note about miuup cap
-    ax.text(0.02, 0.98, 'use_miuup_cap = True\ncap_slack_allocation = "consumption"',
+    # Add note about mu_up cap
+    ax.text(0.02, 0.98, 'use_mu_up_cap = True\ncap_slack_allocation = "consumption"',
            transform=ax.transAxes, fontsize=8, va='top',
            bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
 
@@ -241,7 +241,7 @@ def plot_lambda_short_horizon(all_results, output_dir):
 
 
 def print_cap_sanity_check(results, scenario_key):
-    """Print sanity check for miuup cap for first 10 years."""
+    """Print sanity check for mu_up cap for first 10 years."""
     print(f"\n{'='*60}")
     print(f"Sanity Check: Scenario {scenario_key} - First 15 Years")
     print(f"{'='*60}")
@@ -281,7 +281,7 @@ def print_cap_sanity_check(results, scenario_key):
 # =============================================================================
 
 def main():
-    parser = argparse.ArgumentParser(description='Plot Lambda for capped miuup scenarios')
+    parser = argparse.ArgumentParser(description='Plot Lambda for capped mu_up scenarios')
     parser.add_argument('--run', action='store_true',
                        help='Run forward integration. Without this, loads existing results.')
     parser.add_argument('--output-dir', type=str, default='data/output/lambda_capped',
@@ -326,7 +326,7 @@ def main():
     if np.allclose(Lambda_A, Lambda_B, rtol=1e-6):
         print("\n" + "="*70)
         print("NOTE: All scenarios have nearly identical Lambda values.")
-        print("This is EXPECTED when the miuup cap is binding for all years.")
+        print("This is EXPECTED when the mu_up cap is binding for all years.")
         print("Lambda is determined by the DICE schedule, not by policy settings.")
         print("Scenarios differ in welfare, not in capped abatement cost.")
         print("="*70)
@@ -350,12 +350,12 @@ def main():
 
     ax.set_xlabel('Year', fontsize=12)
     ax.set_ylabel('Abatement Cost (% of Output)', fontsize=12)
-    ax.set_title('Lambda: Abatement Cost (% of Output) [2020-2120]\n[with DICE-style miuup cap]',
+    ax.set_title('Lambda: Abatement Cost (% of Output) [2020-2120]\n[with DICE-style mu_up cap]',
                 fontsize=14, fontweight='bold')
     ax.set_xlim(2020, 2120)
     ax.grid(True, alpha=0.3)
     ax.legend(loc='upper right', fontsize=10)
-    ax.text(0.02, 0.98, 'use_miuup_cap = True', transform=ax.transAxes, fontsize=8, va='top',
+    ax.text(0.02, 0.98, 'use_mu_up_cap = True', transform=ax.transAxes, fontsize=8, va='top',
            bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
     plt.tight_layout()
     plt.savefig(output_dir / 'lambda_capped_short.png', dpi=150, bbox_inches='tight')
@@ -372,7 +372,7 @@ def main():
     # Panel 1: Lambda
     ax1.plot(t_plot, results_A['Lambda'][mask] * 100, 'b-', linewidth=2, label='Lambda (all scenarios)')
     ax1.set_ylabel('Abatement Cost (% of Output)', fontsize=12)
-    ax1.set_title('Lambda: Abatement Cost (% of Output) with DICE miuup Cap', fontsize=14, fontweight='bold')
+    ax1.set_title('Lambda: Abatement Cost (% of Output) with DICE mu_up Cap', fontsize=14, fontweight='bold')
     ax1.grid(True, alpha=0.3)
     ax1.legend(loc='upper right')
 
