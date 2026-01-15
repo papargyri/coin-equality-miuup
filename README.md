@@ -273,6 +273,70 @@ The model has 5 boolean switches controlling different policy features. Three ar
 
 **Important**: The code automatically enforces these dependencies. Sub-switches are only evaluated when their parent switch is enabled, ensuring logically consistent behavior.
 
+### DICE-Style Abatement Cap (miuup)
+
+The model supports a time-varying upper bound on the abatement fraction μ, following the DICE-2023 schedule. This cap limits how much abatement can occur in early years, reflecting technological and political constraints on rapid decarbonization.
+
+#### Enabling the Cap
+
+Set `use_miuup_cap` to `true` in the `scalar_parameters` section:
+
+```json
+"scalar_parameters": {
+    "use_miuup_cap": true,
+    "miuup_start_year": 2020,
+    "miuup_period_years": 5,
+    "miuup_interpolation": "linear",
+    "cap_slack_allocation": "consumption"
+}
+```
+
+#### Configuration Parameters
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `use_miuup_cap` | bool | `false` | Enable/disable the DICE-style μ cap |
+| `miuup_start_year` | int | `2020` | First year of DICE period 1 |
+| `miuup_period_years` | int | `5` | Length of each DICE period in years |
+| `miuup_interpolation` | str | `"linear"` | Interpolation method: `"linear"` or `"stepwise"` |
+| `cap_slack_allocation` | str | `"consumption"` | Where unused budget goes when cap binds |
+
+#### DICE-2023 Schedule
+
+The μ cap follows the DICE-2023 schedule at 5-year period boundaries:
+
+| Period | Years | μ_cap |
+|--------|-------|-------|
+| p=1 | 2020-2024 | 0.05 |
+| p=2 | 2025-2029 | 0.10 |
+| p=3 | 2030-2034 | 0.24 |
+| p=4 | 2035-2039 | 0.36 |
+| ... | ... | 0.12 × (p-1) |
+| p>8 | 2060+ | 0.85 + 0.05 × (p-8) |
+
+With `miuup_interpolation: "linear"`, yearly values are linearly interpolated between period boundaries. For example, μ_cap in 2022 = 0.07 (interpolated between 0.05 at 2020 and 0.10 at 2025).
+
+#### Slack Allocation
+
+When the cap binds (optimizer wants more abatement than allowed), the unused budget can be allocated via `cap_slack_allocation`:
+
+- `"consumption"` (default): Slack increases consumption (budget not spent on abatement)
+- `"redistribution"`: Slack added to redistribution transfers (only if `income_redistribution: true`)
+- `"unallocated"`: Slack is simply not spent (tracked for bookkeeping)
+
+#### Diagnostic Outputs
+
+When the cap is enabled, additional columns appear in `results.csv`:
+
+| Column | Description |
+|--------|-------------|
+| `mu_uncapped` | Abatement fraction before cap applied |
+| `mu_cap` | Cap value at this timestep |
+| `cap_binding` | 1 if cap is binding, 0 otherwise |
+| `abateCost_proposed` | Proposed abatement cost before cap |
+| `abateCost_effective` | Effective abatement cost after cap |
+| `cap_slack` | Unused budget (proposed - effective) |
+
 ### Output Files
 
 Each run creates a timestamped directory:
