@@ -328,11 +328,6 @@ When the cap is enabled, additional columns appear in `results.csv`:
 
 | Column | Description |
 |--------|-------------|
-| `mu_uncapped` | Abatement fraction before cap applied |
-| `mu_cap` | Cap value at this timestep |
-| `cap_binding` | 1 if cap is binding, 0 otherwise |
-| `abateCost_proposed` | Proposed abatement cost before cap |
-| `abateCost_effective` | Effective abatement cost after cap |
 
 ### Output Files
 

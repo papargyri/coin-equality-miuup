@@ -371,11 +371,6 @@ def write_results_csv(results, output_dir, run_name='', filename='results.csv'):
         'Lambda',  # Abatement cost as fraction of damaged output
         # Remaining variables
         'mu',  # Abatement fraction
-        'mu_uncapped',  # Uncapped abatement fraction (before mu_up cap)
-        'mu_cap',  # Mu_up cap value at this timestep
-        'cap_binding',  # 1 if mu_up cap is binding, 0 otherwise
-        'abateCost_proposed',  # Proposed abatement cost before cap
-        'abateCost_effective',  # Effective abatement cost after cap
         'E',  # CO2 emissions
         'dK_dt',  # Net capital accumulation
         'marginal_abatement_cost',  # Marginal abatement cost (social cost of carbon)
@@ -439,11 +434,6 @@ def write_results_csv(results, output_dir, run_name='', filename='results.csv'):
         'tax_amount': ('Per-capita tax amount (abatement + redistribution)', '$/person/yr'),
         'r_consumption': ('Effective discount rate on consumption', 'dimensionless'),
         # Mu_up cap diagnostics
-        'mu_uncapped': ('Uncapped abatement fraction (before mu_up cap)', 'dimensionless'),
-        'mu_cap': ('Mu_up cap value', 'dimensionless'),
-        'cap_binding': ('Mu_up cap binding indicator (1=yes, 0=no)', 'dimensionless'),
-        'abateCost_proposed': ('Proposed abatement cost before cap', '$/person/yr'),
-        'abateCost_effective': ('Effective abatement cost after cap', '$/person/yr'),
     }
 
     # Create headers with format: "variable, description, (units)"

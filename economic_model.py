@@ -959,11 +959,6 @@ def integrate_model(config, store_detailed_output=True):
             'omega_yi': np.zeros((n_steps, n_quad)),
             'utility_yi': np.zeros((n_steps, n_quad)),
             # Mu_up cap diagnostics
-            'mu_uncapped': np.zeros(n_steps),
-            'mu_cap': np.zeros(n_steps),
-            'cap_binding': np.zeros(n_steps),
-            'abateCost_proposed': np.zeros(n_steps),
-            'abateCost_effective': np.zeros(n_steps),
         })
 
     # Always store time, state variables, and objective function variables
@@ -991,8 +986,12 @@ def integrate_model(config, store_detailed_output=True):
         # Evaluate time-dependent parameters at current time
         params = evaluate_params_at_time(t, config)
 
-        # If mu_up cap is disabled, set mu_max to INVERSE_EPSILON (effectively no cap)
-        if not sp.use_mu_up:
+        # Set mu_max based on use_mu_up flag
+        if sp.use_mu_up:
+            # Interpolate mu_max from user-defined schedule
+            params['mu_max'] = get_mu_up_from_schedule(t, sp.mu_up_schedule)
+        else:
+            # No cap - set mu_max to INVERSE_EPSILON (effectively unlimited)
             params['mu_max'] = INVERSE_EPSILON
 
         if store_detailed_output:
@@ -1065,11 +1064,6 @@ def integrate_model(config, store_detailed_output=True):
             results['dK_dt'][i] = outputs['dK_dt']
 
             # Store mu_up cap diagnostics
-            results['mu_uncapped'][i] = outputs['mu_uncapped']
-            results['mu_cap'][i] = outputs['mu_cap']
-            results['cap_binding'][i] = outputs['cap_binding']
-            results['abateCost_proposed'][i] = outputs['abateCost_proposed']
-            results['abateCost_effective'][i] = outputs['abateCost_effective']
 
         # Euler step: update state for next iteration (skip on last step)
         if i < n_steps - 1:
