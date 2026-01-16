@@ -10,7 +10,6 @@ Creates a comparison plot of Lambda = AbateCost / Y_damaged for 4 scenarios:
 
 All scenarios run with:
   - use_mu_up_cap = True
-  - cap_slack_allocation = "consumption"
   - dt = 1 (yearly integration)
   - 400 year horizon (2020-2420)
 
@@ -96,7 +95,6 @@ def run_scenario(scenario_key, output_dir):
 
     # Enable mu_up cap
     config.scalar_params.use_mu_up_cap = True
-    config.scalar_params.cap_slack_allocation = "consumption"
 
     # Override flags if needed (in case config doesn't match)
     config.scalar_params.income_dependent_damage_distribution = scenario['income_dependent_damage_distribution']
@@ -119,7 +117,6 @@ def run_scenario(scenario_key, output_dir):
              AbateCost=results['AbateCost'],
              abateCost_effective=results['abateCost_effective'],
              abateCost_proposed=results['abateCost_proposed'],
-             cap_slack=results['cap_slack'],
              Y_damaged=results['Y_damaged'],
              marginal_abatement_cost=results.get('marginal_abatement_cost', np.zeros_like(results['t'])))
 
@@ -210,7 +207,6 @@ def plot_lambda_comparison(all_results, output_dir, time_range=None):
     ax.legend(loc='upper right', fontsize=10)
 
     # Add note about mu_up cap
-    ax.text(0.02, 0.98, 'use_mu_up_cap = True\ncap_slack_allocation = "consumption"',
            transform=ax.transAxes, fontsize=8, va='top',
            bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
 
@@ -255,7 +251,6 @@ def print_cap_sanity_check(results, scenario_key):
         mu_cap = results['mu_cap'][i]
         mu_final = results['mu'][i]
         cap_binding = int(results['cap_binding'][i])
-        slack = results['cap_slack'][i]
 
         print(f"{year:<6} {mu_uncapped:>12.4f} {mu_cap:>10.4f} {mu_final:>10.4f} {cap_binding:>10} {slack:>12.2f}")
 
@@ -309,7 +304,6 @@ def main():
                 'AbateCost': results['AbateCost'],
                 'abateCost_effective': results['abateCost_effective'],
                 'abateCost_proposed': results['abateCost_proposed'],
-                'cap_slack': results['cap_slack'],
                 'Y_damaged': results['Y_damaged'],
                 'marginal_abatement_cost': results.get('marginal_abatement_cost', np.zeros_like(results['t'])),
             }

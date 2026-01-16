@@ -296,8 +296,7 @@ Set `use_mu_up` to `true` and provide a `mu_up_schedule` in the `scalar_paramete
         [2200.001, 1.05],
         [2300.0, 1.05],
         [2300.001, 1.0]
-    ],
-    "cap_slack_allocation": "consumption"
+    ]
 }
 ```
 
@@ -307,7 +306,6 @@ Set `use_mu_up` to `true` and provide a `mu_up_schedule` in the `scalar_paramete
 |-----------|------|---------|-------------|
 | `use_mu_up` | bool | `false` | Enable/disable the μ cap |
 | `mu_up_schedule` | list | (required) | List of `[year, mu_cap]` pairs defining the cap schedule |
-| `cap_slack_allocation` | str | `"consumption"` | Where unused budget goes when cap binds |
 
 #### Schedule Format
 
@@ -324,14 +322,6 @@ Example interpretation:
 
 Values above 1.0 allow carbon dioxide removal (negative emissions).
 
-#### Slack Allocation
-
-When the cap binds (optimizer wants more abatement than allowed), the unused budget can be allocated via `cap_slack_allocation`:
-
-- `"consumption"` (default): Slack increases consumption (budget not spent on abatement)
-- `"redistribution"`: Slack added to redistribution transfers (only if `income_redistribution: true`)
-- `"unallocated"`: Slack is simply not spent (tracked for bookkeeping)
-
 #### Diagnostic Outputs
 
 When the cap is enabled, additional columns appear in `results.csv`:
@@ -343,7 +333,6 @@ When the cap is enabled, additional columns appear in `results.csv`:
 | `cap_binding` | 1 if cap is binding, 0 otherwise |
 | `abateCost_proposed` | Proposed abatement cost before cap |
 | `abateCost_effective` | Effective abatement cost after cap |
-| `cap_slack` | Unused budget (proposed - effective) |
 
 ### Output Files
 

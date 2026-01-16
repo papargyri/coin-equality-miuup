@@ -353,7 +353,6 @@ class ScalarParameters:
         Linear interpolation between points; flat extrapolation outside range.
         Example: [[2020, 0.05], [2025, 0.10], [2060, 0.9], [2070, 1.0]]
         Required when use_mu_up is True.
-    cap_slack_allocation : str
         How to allocate slack budget when cap binds:
         - "consumption": slack goes to consumption (default)
         - "redistribution": slack added to redistribution transfers
@@ -383,7 +382,6 @@ class ScalarParameters:
     # Mu_up cap configuration (DICE-style time-varying μ upper bound)
     use_mu_up: bool = False  # If True, enforce mu_up cap on abatement fraction
     mu_up_schedule: list = None  # List of [year, mu_cap] pairs for user-defined schedule
-    cap_slack_allocation: str = "consumption"  # Where slack goes: "consumption", "redistribution", "unallocated"
 
     def __post_init__(self):
         """Set default for mu_max if not provided."""

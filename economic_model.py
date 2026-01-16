@@ -20,7 +20,7 @@ from distribution_utilities import (
     stepwise_integrate
 )
 from parameters import evaluate_params_at_time
-from constants import EPSILON, LOOSE_EPSILON, NEG_BIGNUM, EMPIRICAL_LORENZ_BASE_GINI
+from constants import EPSILON, LOOSE_EPSILON, NEG_BIGNUM, EMPIRICAL_LORENZ_BASE_GINI, INVERSE_EPSILON
 from mu_up import get_mu_up_from_schedule, invert_abatement_cost
 from mu_up import print_mu_up_schedule
 
@@ -887,13 +887,8 @@ def integrate_model(config, store_detailed_output=True):
     dt = config.integration_params.dt
     n_quad = config.integration_params.n_quad
 
-    # Build mu_up_params dict from scalar_params for passing to calculate_tendencies
+    # Extract scalar params for mu_up configuration
     sp = config.scalar_params
-    mu_up_params = {
-        'use_mu_up': sp.use_mu_up,
-        'mu_up_schedule': sp.mu_up_schedule,
-        'cap_slack_allocation': sp.cap_slack_allocation,
-    }
 
     # Create time array
     t_array = np.arange(t_start, t_end + dt, dt)
@@ -969,7 +964,6 @@ def integrate_model(config, store_detailed_output=True):
             'cap_binding': np.zeros(n_steps),
             'abateCost_proposed': np.zeros(n_steps),
             'abateCost_effective': np.zeros(n_steps),
-            'cap_slack': np.zeros(n_steps),
         })
 
     # Always store time, state variables, and objective function variables
@@ -997,6 +991,10 @@ def integrate_model(config, store_detailed_output=True):
         # Evaluate time-dependent parameters at current time
         params = evaluate_params_at_time(t, config)
 
+        # If mu_up cap is disabled, set mu_max to INVERSE_EPSILON (effectively no cap)
+        if not sp.use_mu_up:
+            params['mu_max'] = INVERSE_EPSILON
+
         if store_detailed_output:
             results['params_list'].append(params)
 
@@ -1007,8 +1005,7 @@ def integrate_model(config, store_detailed_output=True):
                                       omega_Fmin_Omega_base_ratio_prev, omega_yi_Omega_base_ratio_prev, omega_Fmax_Omega_base_ratio_prev,
                                       Fmin_prev, Fmax_prev,
                                       Omega_Omega_base_ratio_prev,
-                                      xi, xi_edges, wi, store_detailed_output,
-                                      mu_up_params=mu_up_params)
+                                      xi, xi_edges, wi, store_detailed_output)
 
         # Always store variables needed for objective function
         results['U'][i] = outputs['U']
@@ -1073,7 +1070,6 @@ def integrate_model(config, store_detailed_output=True):
             results['cap_binding'][i] = outputs['cap_binding']
             results['abateCost_proposed'][i] = outputs['abateCost_proposed']
             results['abateCost_effective'][i] = outputs['abateCost_effective']
-            results['cap_slack'][i] = outputs['cap_slack']
 
         # Euler step: update state for next iteration (skip on last step)
         if i < n_steps - 1:
