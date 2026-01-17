@@ -322,12 +322,7 @@ Example interpretation:
 
 Values above 1.0 allow carbon dioxide removal (negative emissions).
 
-#### Diagnostic Outputs
-
-When the cap is enabled, additional columns appear in `results.csv`:
-
-| Column | Description |
-|--------|-------------|
+When `use_mu_up` is `false`, the model sets `mu_max` to a very large value (effectively no cap on abatement).
 
 ### Output Files
 
@@ -439,8 +434,10 @@ coin_equality/
 ├── README_DETAIL.md                   # Detailed technical documentation
 ├── CLAUDE.md                          # AI coding style guide
 ├── requirements.txt                   # Python dependencies
+├── constants.py                       # Numerical constants and tolerances
 ├── distribution_utilities.py          # Income distribution and utility integration
 ├── economic_model.py                  # Economic production and tendencies
+├── mu_up.py                           # Abatement cap schedule interpolation
 ├── parameters.py                      # Parameter definitions and configuration
 ├── optimization.py                    # Optimization framework
 ├── output.py                          # Output generation (CSV and PDF)
