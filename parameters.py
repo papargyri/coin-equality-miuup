@@ -15,7 +15,7 @@ and the run name (used for output directory naming).
 import json
 import numpy as np
 from dataclasses import dataclass
-from constants import LOOSE_EPSILON
+from constants import LOOSE_EPSILON, INVERSE_EPSILON
 
 
 # =============================================================================
@@ -353,10 +353,14 @@ class ScalarParameters:
         Linear interpolation between points; flat extrapolation outside range.
         Example: [[2020, 0.05], [2025, 0.10], [2060, 0.9], [2070, 1.0]]
         Required when use_mu_up is True.
-        How to allocate slack budget when cap binds:
-        - "consumption": slack goes to consumption (default)
-        - "redistribution": slack added to redistribution transfers
-        - "unallocated": slack removed from economy
+    cap_spending_mode : str
+        Controls what happens to abatement spending above μ_up cap.
+        Only applies when use_mu_up=True and cap binds.
+        Options:
+        - "waste" (default): Spending above cap is wasted (still subtracted from output).
+          Optimizer learns to avoid overspending. Matches Ken's Project 1 design.
+        - "no_waste": Spending above cap is returned to consumption.
+          Only effective cost (for capped μ) is subtracted from output.
     use_emissions_additions : bool
         If True, add exogenous CO2 emissions (e.g., land-use emissions) to total emissions.
         These additions are NOT abatable (not affected by μ).
@@ -392,13 +396,13 @@ class ScalarParameters:
     # Mu_up cap configuration (DICE-style time-varying μ upper bound)
     use_mu_up: bool = False  # If True, enforce mu_up cap on abatement fraction
     mu_up_schedule: list = None  # List of [year, mu_cap] pairs for user-defined schedule
+    cap_spending_mode: str = "waste"  # "waste" (default) or "no_waste" - spending behavior when cap binds
     # Exogenous emissions additions (e.g., land-use emissions)
     use_emissions_additions: bool = False  # If True, add exogenous emissions to total
     emissions_additions_schedule: list = None  # List of [year, E_add] pairs in tCO2/year
 
     def __post_init__(self):
         """Set default for mu_max if not provided."""
-        from constants import INVERSE_EPSILON
         if self.mu_max is None:
             object.__setattr__(self, 'mu_max', INVERSE_EPSILON)
 

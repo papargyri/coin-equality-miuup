@@ -22,7 +22,6 @@ from distribution_utilities import (
 from parameters import evaluate_params_at_time
 from constants import EPSILON, LOOSE_EPSILON, NEG_BIGNUM, EMPIRICAL_LORENZ_BASE_GINI, INVERSE_EPSILON
 from mu_up import get_mu_up_from_schedule, invert_abatement_cost, get_emissions_additions
-from mu_up import print_mu_up_schedule
 
 def gini_from_distribution(values_yi, Fi_edges, Fwi):
     """
@@ -264,6 +263,7 @@ def calculate_tendencies(state, params,
     theta2 = params['theta2']
     mu_max = params['mu_max']
     use_mu_up = params['use_mu_up']
+    cap_spending_mode = params['cap_spending_mode']
     E_add_total = params['E_add_total']
     fract_gdp = params['fract_gdp']
     gini = params['gini']
@@ -408,7 +408,7 @@ def calculate_tendencies(state, params,
         abateCost_proposed = f * available_for_redistribution_and_abatement # per capita
 
         #========================================================================================
-        # NO-WASTE ACCOUNTING: Adjust abatement cost when mu_up cap binds
+        # MU_UP CAP ACCOUNTING: Compute mu and handle spending when cap binds
         #========================================================================================
         # Compute potential emissions (needed for mu calculation)
         epot = sigma * y_gross
@@ -426,24 +426,36 @@ def calculate_tendencies(state, params,
         # Only consider cap binding if use_mu_up=True and mu_uncapped > mu_max
         cap_binding = use_mu_up and (mu_uncapped > mu_max + EPSILON)
 
-        # If cap binds, recompute effective cost (NO-WASTE)
-        if cap_binding:
-            # Compute actual abatement cost needed to achieve mu_final
+        # Apply cap spending mode to determine actual cost used in accounting
+        if cap_spending_mode == "waste":
+            # WASTE MODE (default, Ken's Project 1 design):
+            # In waste mode, effective cost equals proposed cost by definition
+            # Extra spending beyond cap is "wasted" (still subtracted from output)
+            # Optimizer will learn to avoid overspending
+            abateCost_effective = abateCost_proposed
+            wasted_abatement_spending = 0.0  # Zero by definition (effective == proposed)
+            abateCost_amount = abateCost_proposed
+            unused_abatement_budget = 0.0  # Nothing returned to consumption
+
+        elif cap_spending_mode == "no_waste":
+            # NO-WASTE MODE:
+            # Compute effective cost from mu_final (what's actually needed to achieve capped mu)
             if epot > 0:
                 abateCost_effective = invert_abatement_cost(mu_final, epot, theta1, theta2)
             else:
                 abateCost_effective = 0.0
 
-            # Freed budget that would have been wasted
-            unused_abatement_budget = abateCost_proposed - abateCost_effective
+            wasted_abatement_spending = abateCost_proposed - abateCost_effective
 
-            # Use effective cost for all downstream accounting (freed money stays in consumption)
-            abateCost_amount = abateCost_effective
+            # When cap binds, use only effective cost - freed money returns to consumption
+            if cap_binding:
+                abateCost_amount = abateCost_effective
+                unused_abatement_budget = wasted_abatement_spending
+            else:
+                abateCost_amount = abateCost_proposed
+                unused_abatement_budget = 0.0
         else:
-            # Cap not binding or not using mu_up: use proposed cost
-            abateCost_amount = abateCost_proposed
-            abateCost_effective = abateCost_proposed
-            unused_abatement_budget = 0.0
+            raise ValueError(f"Invalid cap_spending_mode: {cap_spending_mode}. Must be 'waste' or 'no_waste'.")
 
         #========================================================================================
         # Continue with downstream accounting using adjusted abateCost_amount
@@ -840,12 +852,14 @@ def calculate_tendencies(state, params,
             'Fmax': Fmax,
             'min_y_net': min_y_net,
             'max_y_net': max_y_net,
-            # NO-WASTE accounting diagnostics
+            # Mu_up cap diagnostics
             'mu_uncapped': mu_uncapped,
             'mu_cap': mu_max,  # The schedule value at this timestep
+            'mu_final': mu_final,
             'cap_binding': 1.0 if cap_binding else 0.0,
             'abateCost_proposed': abateCost_proposed,
             'abateCost_effective': abateCost_effective,
+            'wasted_abatement_spending': wasted_abatement_spending,
             'unused_abatement_budget': unused_abatement_budget,
             # Emissions components diagnostics
             'E_industrial': E_industrial,
@@ -1020,9 +1034,11 @@ def integrate_model(config, store_detailed_output=True):
             # Mu_up cap diagnostics
             'mu_uncapped': np.zeros(n_steps),
             'mu_cap': np.zeros(n_steps),
+            'mu_final': np.zeros(n_steps),
             'cap_binding': np.zeros(n_steps),
             'abateCost_proposed': np.zeros(n_steps),
             'abateCost_effective': np.zeros(n_steps),
+            'wasted_abatement_spending': np.zeros(n_steps),
             'unused_abatement_budget': np.zeros(n_steps),
             # Emissions components diagnostics
             'E_industrial': np.zeros(n_steps),
@@ -1063,8 +1079,9 @@ def integrate_model(config, store_detailed_output=True):
             # No cap - set mu_max to INVERSE_EPSILON (effectively unlimited)
             params['mu_max'] = INVERSE_EPSILON
 
-        # Pass use_mu_up flag to calculate_tendencies for NO-WASTE accounting
+        # Pass use_mu_up flag and cap_spending_mode to calculate_tendencies
         params['use_mu_up'] = sp.use_mu_up
+        params['cap_spending_mode'] = sp.cap_spending_mode
 
         # Set E_add_total based on use_emissions_additions flag
         if sp.use_emissions_additions:
@@ -1112,21 +1129,24 @@ def integrate_model(config, store_detailed_output=True):
             results['lambda_abate'][i] = outputs['lambda_abate']
             results['abateCost_amount'][i] = outputs['abateCost_amount']
 
-            # Store NO-WASTE diagnostics
+            # Store mu_up cap diagnostics
             results['mu_uncapped'][i] = outputs['mu_uncapped']
             results['mu_cap'][i] = outputs['mu_cap']
+            results['mu_final'][i] = outputs['mu_final']
             results['cap_binding'][i] = outputs['cap_binding']
             results['abateCost_proposed'][i] = outputs['abateCost_proposed']
             results['abateCost_effective'][i] = outputs['abateCost_effective']
+            results['wasted_abatement_spending'][i] = outputs['wasted_abatement_spending']
             results['unused_abatement_budget'][i] = outputs['unused_abatement_budget']
 
-            # Debug printing for NO-WASTE accounting (first ~10 years)
-            DEBUG_NO_WASTE = False  # Set to True to enable debug output
-            if DEBUG_NO_WASTE and i < 11:  # Print first 11 timesteps (years 0-10)
-                print(f"NO-WASTE Debug t={t:.1f}:")
-                print(f"  mu_cap={outputs['mu_cap']:.6f}, mu_uncapped={outputs['mu_uncapped']:.6f}, mu_final={outputs['mu']:.6f}")
+            # Debug printing for mu_up cap accounting (first ~10 years)
+            DEBUG_CAP_SPENDING = False  # Set to True to enable debug output
+            if DEBUG_CAP_SPENDING and i < 11:  # Print first 11 timesteps (years 0-10)
+                print(f"CAP SPENDING Debug t={t:.1f} (mode={sp.cap_spending_mode}):")
+                print(f"  mu_cap={outputs['mu_cap']:.6f}, mu_uncapped={outputs['mu_uncapped']:.6f}, mu_final={outputs['mu_final']:.6f}")
                 print(f"  AbateCost_proposed={outputs['abateCost_proposed']:.6e}, AbateCost_effective={outputs['abateCost_effective']:.6e}")
-                print(f"  unused_budget={outputs['unused_abatement_budget']:.6e}, cap_binding={outputs['cap_binding']:.0f}")
+                print(f"  wasted_spending={outputs['wasted_abatement_spending']:.6e}, unused_budget={outputs['unused_abatement_budget']:.6e}")
+                print(f"  cap_binding={outputs['cap_binding']:.0f}")
                 print()
 
             # Store emissions components diagnostics
