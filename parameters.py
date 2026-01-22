@@ -357,6 +357,16 @@ class ScalarParameters:
         - "consumption": slack goes to consumption (default)
         - "redistribution": slack added to redistribution transfers
         - "unallocated": slack removed from economy
+    use_emissions_additions : bool
+        If True, add exogenous CO2 emissions (e.g., land-use emissions) to total emissions.
+        These additions are NOT abatable (not affected by μ).
+        Default: False (no additions, industrial emissions only)
+    emissions_additions_schedule : list of [year, E_add] pairs
+        User-defined schedule for exogenous emissions additions.
+        Each entry is [year, E_add] where E_add is in tCO2/year (total, not per-capita).
+        Linear interpolation between points; flat extrapolation outside range.
+        Example: [[2020, 5e9], [2050, 3e9], [2100, 0]]  # 5 GtCO2/yr declining to 0
+        Required when use_emissions_additions is True.
     """
     alpha: float
     delta: float
@@ -382,6 +392,9 @@ class ScalarParameters:
     # Mu_up cap configuration (DICE-style time-varying μ upper bound)
     use_mu_up: bool = False  # If True, enforce mu_up cap on abatement fraction
     mu_up_schedule: list = None  # List of [year, mu_cap] pairs for user-defined schedule
+    # Exogenous emissions additions (e.g., land-use emissions)
+    use_emissions_additions: bool = False  # If True, add exogenous emissions to total
+    emissions_additions_schedule: list = None  # List of [year, E_add] pairs in tCO2/year
 
     def __post_init__(self):
         """Set default for mu_max if not provided."""

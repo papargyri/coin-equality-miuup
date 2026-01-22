@@ -1,11 +1,14 @@
 """
-Mu_up (μ upper bound) schedule calculation.
+Mu_up (μ upper bound) schedule calculation and emissions additions.
 
 Implements time-varying cap on abatement fraction μ using user-defined schedules.
 The schedule is specified as a list of [year, mu_cap] pairs with linear
 interpolation between points and flat extrapolation outside the range.
 
-Example schedule:
+Also implements exogenous CO2 emissions additions (e.g., land-use emissions)
+specified as a time-varying schedule in tCO2/year.
+
+Example mu_up schedule:
 [[2020, 0.05], [2025, 0.10], [2060, 0.9], [2070, 1.0]]
 
 For years before 2020: mu_cap = 0.05 (first value)
@@ -49,6 +52,57 @@ def get_mu_up_from_schedule(year, schedule):
     >>> get_mu_up_from_schedule(2100, schedule)  # After last point
     1.0
     """
+    # Extract years and values from schedule
+    years = np.array([point[0] for point in schedule])
+    values = np.array([point[1] for point in schedule])
+
+    # np.interp handles flat extrapolation by default when year is outside range
+    return np.interp(year, years, values)
+
+
+def get_emissions_additions(year, schedule):
+    """
+    Get exogenous CO2 emissions additions for a specific calendar year.
+
+    Uses linear interpolation between schedule points. For times before the
+    first point or after the last point, returns the value at that boundary
+    (flat extrapolation).
+
+    The emissions additions represent exogenous emissions NOT from industrial
+    output (e.g., land-use emissions, deforestation). They are NOT abatable.
+
+    Parameters
+    ----------
+    year : float
+        Calendar year (e.g., 2020.0, 2025.5, ...) - same convention as mu_up schedule
+    schedule : list of [year, E_add] pairs
+        User-defined schedule of emissions additions. Must be sorted by year (ascending).
+        Years are calendar years (e.g., 2020, 2050, ...)
+        E_add values are in tCO2/year (total emissions, not per-capita)
+        Example: [[2020, 5e9], [2050, 3e9], [2100, 0]]
+
+    Returns
+    -------
+    float
+        Emissions additions in tCO2/year for this calendar year
+
+    Examples
+    --------
+    >>> schedule = [[2020, 5e9], [2050, 3e9], [2100, 0]]
+    >>> get_emissions_additions(2020, schedule)  # Year 2020
+    5000000000.0
+    >>> get_emissions_additions(2035, schedule)  # Year 2035 (interpolated)
+    4000000000.0
+    >>> get_emissions_additions(2050, schedule)  # Year 2050
+    3000000000.0
+    >>> get_emissions_additions(2010, schedule)  # Before first point
+    5000000000.0
+    >>> get_emissions_additions(2150, schedule)  # After last point
+    0.0
+    """
+    if not schedule or len(schedule) == 0:
+        return 0.0
+
     # Extract years and values from schedule
     years = np.array([point[0] for point in schedule])
     values = np.array([point[1] for point in schedule])

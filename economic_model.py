@@ -21,7 +21,7 @@ from distribution_utilities import (
 )
 from parameters import evaluate_params_at_time
 from constants import EPSILON, LOOSE_EPSILON, NEG_BIGNUM, EMPIRICAL_LORENZ_BASE_GINI, INVERSE_EPSILON
-from mu_up import get_mu_up_from_schedule, invert_abatement_cost
+from mu_up import get_mu_up_from_schedule, invert_abatement_cost, get_emissions_additions
 from mu_up import print_mu_up_schedule
 
 def gini_from_distribution(values_yi, Fi_edges, Fwi):
@@ -264,6 +264,7 @@ def calculate_tendencies(state, params,
     theta2 = params['theta2']
     mu_max = params['mu_max']
     use_mu_up = params['use_mu_up']
+    E_add_total = params['E_add_total']
     fract_gdp = params['fract_gdp']
     gini = params['gini']
     use_empirical_lorenz = params['use_empirical_lorenz']
@@ -798,8 +799,13 @@ def calculate_tendencies(state, params,
         # Note: mu_final already computed in NO-WASTE accounting section above
         mu = mu_final
 
-        # Eq 2.3: Actual emissions per capita (after abatement)
-        e = sigma * (1 - mu) * y_gross
+        # Eq 2.3: Industrial emissions per capita (after abatement)
+        e_industrial = sigma * (1 - mu) * y_gross
+        e = e_industrial  # For backward compatibility with existing code
+
+        # Total emissions (industrial + exogenous additions)
+        E_industrial = e_industrial * L  # tCO2/year from industrial output
+        E_total = E_industrial + E_add_total  # Add exogenous emissions (NOT abatable)
     
         # Eq 1.10: Capital tendency
         dK_dt = s * y_net * L - delta * K
@@ -841,6 +847,10 @@ def calculate_tendencies(state, params,
             'abateCost_proposed': abateCost_proposed,
             'abateCost_effective': abateCost_effective,
             'unused_abatement_budget': unused_abatement_budget,
+            # Emissions components diagnostics
+            'E_industrial': E_industrial,
+            'E_add_total': E_add_total,
+            'E_total': E_total,
             'aggregate_utility': aggregate_utility,
             'Gini': gini,
             'gini': gini,
@@ -861,7 +871,7 @@ def calculate_tendencies(state, params,
     results.update({
         'U': U,
         'dK_dt': dK_dt,
-        'dEcum_dt': e * L,
+        'dEcum_dt': E_total,  # Total emissions (industrial + exogenous additions)
     })
 
     # Always return climate damage ratios for use in next time step
@@ -1014,6 +1024,10 @@ def integrate_model(config, store_detailed_output=True):
             'abateCost_proposed': np.zeros(n_steps),
             'abateCost_effective': np.zeros(n_steps),
             'unused_abatement_budget': np.zeros(n_steps),
+            # Emissions components diagnostics
+            'E_industrial': np.zeros(n_steps),
+            'E_add_total': np.zeros(n_steps),
+            'E_total': np.zeros(n_steps),
         })
 
     # Always store time, state variables, and objective function variables
@@ -1051,6 +1065,15 @@ def integrate_model(config, store_detailed_output=True):
 
         # Pass use_mu_up flag to calculate_tendencies for NO-WASTE accounting
         params['use_mu_up'] = sp.use_mu_up
+
+        # Set E_add_total based on use_emissions_additions flag
+        if sp.use_emissions_additions:
+            # Interpolate emissions additions from user-defined schedule
+            # Note: t is already a calendar year (e.g., 2020, 2021, ...), same as mu_up_schedule
+            params['E_add_total'] = get_emissions_additions(t, sp.emissions_additions_schedule)
+        else:
+            # No exogenous emissions - only industrial emissions
+            params['E_add_total'] = 0.0
 
         if store_detailed_output:
             results['params_list'].append(params)
@@ -1104,6 +1127,21 @@ def integrate_model(config, store_detailed_output=True):
                 print(f"  mu_cap={outputs['mu_cap']:.6f}, mu_uncapped={outputs['mu_uncapped']:.6f}, mu_final={outputs['mu']:.6f}")
                 print(f"  AbateCost_proposed={outputs['abateCost_proposed']:.6e}, AbateCost_effective={outputs['abateCost_effective']:.6e}")
                 print(f"  unused_budget={outputs['unused_abatement_budget']:.6e}, cap_binding={outputs['cap_binding']:.0f}")
+                print()
+
+            # Store emissions components diagnostics
+            results['E_industrial'][i] = outputs['E_industrial']
+            results['E_add_total'][i] = outputs['E_add_total']
+            results['E_total'][i] = outputs['E_total']
+
+            # Debug printing for emissions additions (first ~10 years)
+            DEBUG_EMISSIONS_ADDITIONS = False  # Set to True to enable debug output
+            if DEBUG_EMISSIONS_ADDITIONS and i < 11:  # Print first 11 timesteps (years 0-10)
+                year = sp.t_base + t
+                print(f"EMISSIONS Debug year={year:.0f}:")
+                print(f"  E_industrial={outputs['E_industrial']:.6e} tCO2/yr")
+                print(f"  E_add_total={outputs['E_add_total']:.6e} tCO2/yr")
+                print(f"  E_total={outputs['E_total']:.6e} tCO2/yr")
                 print()
 
             # Store redistribution/tax variables
