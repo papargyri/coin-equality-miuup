@@ -263,6 +263,7 @@ def calculate_tendencies(state, params,
     theta1 = params['theta1']
     theta2 = params['theta2']
     mu_max = params['mu_max']
+    use_mu_up = params['use_mu_up']
     fract_gdp = params['fract_gdp']
     gini = params['gini']
     use_empirical_lorenz = params['use_empirical_lorenz']
@@ -402,7 +403,50 @@ def calculate_tendencies(state, params,
         else:
             redistribution_amount = 0.0
 
-        abateCost_amount = f * available_for_redistribution_and_abatement # per capita
+        # Proposed abatement budget (before NO-WASTE adjustment)
+        abateCost_proposed = f * available_for_redistribution_and_abatement # per capita
+
+        #========================================================================================
+        # NO-WASTE ACCOUNTING: Adjust abatement cost when mu_up cap binds
+        #========================================================================================
+        # Compute potential emissions (needed for mu calculation)
+        epot = sigma * y_gross
+
+        # Compute mu_uncapped (what mu would be without the cap)
+        if epot > 0 and abateCost_proposed > 0:
+            mu_uncapped = (abateCost_proposed * theta2 / (epot * theta1)) ** (1 / theta2)
+        else:
+            mu_uncapped = 0.0
+
+        # Apply cap and physical limit
+        mu_final = min(mu_uncapped, mu_max, 1.0)
+
+        # Check if mu_up schedule cap is binding (not the physical 1.0 limit)
+        # Only consider cap binding if use_mu_up=True and mu_uncapped > mu_max
+        cap_binding = use_mu_up and (mu_uncapped > mu_max + EPSILON)
+
+        # If cap binds, recompute effective cost (NO-WASTE)
+        if cap_binding:
+            # Compute actual abatement cost needed to achieve mu_final
+            if epot > 0:
+                abateCost_effective = invert_abatement_cost(mu_final, epot, theta1, theta2)
+            else:
+                abateCost_effective = 0.0
+
+            # Freed budget that would have been wasted
+            unused_abatement_budget = abateCost_proposed - abateCost_effective
+
+            # Use effective cost for all downstream accounting (freed money stays in consumption)
+            abateCost_amount = abateCost_effective
+        else:
+            # Cap not binding or not using mu_up: use proposed cost
+            abateCost_amount = abateCost_proposed
+            abateCost_effective = abateCost_proposed
+            unused_abatement_budget = 0.0
+
+        #========================================================================================
+        # Continue with downstream accounting using adjusted abateCost_amount
+        #========================================================================================
         lambda_abate = abateCost_amount / y_damaged_calc # fraction of damaged production
 
         tax_amount = abateCost_amount + redistribution_amount # per capita
@@ -748,13 +792,11 @@ def calculate_tendencies(state, params,
         t_before_climate = time.time()
 
         # Eq 2.1: Potential emissions per capita (unabated)
-        epot = sigma * y_gross
+        # Note: epot already computed in NO-WASTE accounting section above
 
-        # Eq 1.6: Abatement fraction (compute uncapped value first)
-        if epot > 0 and abateCost_amount > 0:
-            mu = min(mu_max, (abateCost_amount * theta2 / (epot * theta1)) ** (1 / theta2))
-        else:
-            mu = 0.0
+        # Eq 1.6: Abatement fraction
+        # Note: mu_final already computed in NO-WASTE accounting section above
+        mu = mu_final
 
         # Eq 2.3: Actual emissions per capita (after abatement)
         e = sigma * (1 - mu) * y_gross
@@ -792,6 +834,13 @@ def calculate_tendencies(state, params,
             'Fmax': Fmax,
             'min_y_net': min_y_net,
             'max_y_net': max_y_net,
+            # NO-WASTE accounting diagnostics
+            'mu_uncapped': mu_uncapped,
+            'mu_cap': mu_max,  # The schedule value at this timestep
+            'cap_binding': 1.0 if cap_binding else 0.0,
+            'abateCost_proposed': abateCost_proposed,
+            'abateCost_effective': abateCost_effective,
+            'unused_abatement_budget': unused_abatement_budget,
             'aggregate_utility': aggregate_utility,
             'Gini': gini,
             'gini': gini,
@@ -959,6 +1008,12 @@ def integrate_model(config, store_detailed_output=True):
             'omega_yi': np.zeros((n_steps, n_quad)),
             'utility_yi': np.zeros((n_steps, n_quad)),
             # Mu_up cap diagnostics
+            'mu_uncapped': np.zeros(n_steps),
+            'mu_cap': np.zeros(n_steps),
+            'cap_binding': np.zeros(n_steps),
+            'abateCost_proposed': np.zeros(n_steps),
+            'abateCost_effective': np.zeros(n_steps),
+            'unused_abatement_budget': np.zeros(n_steps),
         })
 
     # Always store time, state variables, and objective function variables
@@ -993,6 +1048,9 @@ def integrate_model(config, store_detailed_output=True):
         else:
             # No cap - set mu_max to INVERSE_EPSILON (effectively unlimited)
             params['mu_max'] = INVERSE_EPSILON
+
+        # Pass use_mu_up flag to calculate_tendencies for NO-WASTE accounting
+        params['use_mu_up'] = sp.use_mu_up
 
         if store_detailed_output:
             results['params_list'].append(params)
@@ -1030,6 +1088,23 @@ def integrate_model(config, store_detailed_output=True):
             results['mu'][i] = outputs['mu']
             results['lambda_abate'][i] = outputs['lambda_abate']
             results['abateCost_amount'][i] = outputs['abateCost_amount']
+
+            # Store NO-WASTE diagnostics
+            results['mu_uncapped'][i] = outputs['mu_uncapped']
+            results['mu_cap'][i] = outputs['mu_cap']
+            results['cap_binding'][i] = outputs['cap_binding']
+            results['abateCost_proposed'][i] = outputs['abateCost_proposed']
+            results['abateCost_effective'][i] = outputs['abateCost_effective']
+            results['unused_abatement_budget'][i] = outputs['unused_abatement_budget']
+
+            # Debug printing for NO-WASTE accounting (first ~10 years)
+            DEBUG_NO_WASTE = False  # Set to True to enable debug output
+            if DEBUG_NO_WASTE and i < 11:  # Print first 11 timesteps (years 0-10)
+                print(f"NO-WASTE Debug t={t:.1f}:")
+                print(f"  mu_cap={outputs['mu_cap']:.6f}, mu_uncapped={outputs['mu_uncapped']:.6f}, mu_final={outputs['mu']:.6f}")
+                print(f"  AbateCost_proposed={outputs['abateCost_proposed']:.6e}, AbateCost_effective={outputs['abateCost_effective']:.6e}")
+                print(f"  unused_budget={outputs['unused_abatement_budget']:.6e}, cap_binding={outputs['cap_binding']:.0f}")
+                print()
 
             # Store redistribution/tax variables
             results['redistribution_amount'][i] = outputs['redistribution_amount']
