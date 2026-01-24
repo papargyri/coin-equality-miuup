@@ -358,7 +358,7 @@ class ScalarParameters:
         Only applies when use_mu_up=True and cap binds.
         Options:
         - "waste" (default): Spending above cap is wasted (still subtracted from output).
-          Optimizer learns to avoid overspending. Matches Ken's Project 1 design.
+          Optimizer learns to avoid overspending.
         - "no_waste": Spending above cap is returned to consumption.
           Only effective cost (for capped μ) is subtracted from output.
     use_emissions_additions : bool

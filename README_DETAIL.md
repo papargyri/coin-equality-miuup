@@ -106,11 +106,12 @@ The differential equation solver uses climate damage from the previous timestep 
 16. **Y_net** from Y_damaged, AbateCost (Eq 1.8: production after abatement costs)
 17. **y_net** from y_damaged, abateCost_mean (Eq 1.9: effective per-capita income)
 18. **E_pot** from σ, Y_gross (Eq 2.1: potential emissions)
-19. **μ** from AbateCost, θ₁, θ₂, E_pot (Eq 1.6: fraction of emissions abated, capped at μ_max)
-20. **E** from σ, μ, Y_gross (Eq 2.3: actual emissions after abatement)
-21. **U** from aggregate_utility (mean utility from integration)
-22. **dK/dt** from s, Y_net, δ, K (Eq 1.10: capital tendency)
-23. **current_income_dist** with y_mean = y_net (for next time step's damage calculation)
+19. **μ** from AbateCost, θ₁, θ₂, E_pot (Eq 1.6: fraction of emissions abated, capped by μ_max or mu_up schedule)
+20. **E_industrial** from σ, μ, Y_gross (Eq 2.3: industrial emissions after abatement)
+21. **E_total** from E_industrial, E_add (Eq 2.3: total emissions including exogenous additions)
+22. **U** from aggregate_utility (mean utility from integration)
+23. **dK/dt** from s, Y_net, δ, K (Eq 1.10: capital tendency)
+24. **current_income_dist** with y_mean = y_net (for next time step's damage calculation)
 
 ### General Calculational Strategy
 
@@ -309,15 +310,28 @@ This is the total amount society allocates to emissions abatement, where:
 
 **Eq. (1.6) - Abatement Fraction:**
 ```
-μ(t) = min(μ_max, [AbateCost(t) · θ₂ / (E_pot(t) · θ₁(t))]^(1/θ₂))
+μ_uncapped(t) = [AbateCost(t) · θ₂ / (E_pot(t) · θ₁(t))]^(1/θ₂)
+
+μ(t) = min(μ_uncapped(t), μ_max(t), 1.0)
 ```
 The fraction of potential emissions that are abated, where:
 - `E_pot(t) = σ(t) · Y_gross(t)` = potential (unabated) emissions
 - `θ₁(t)` = marginal cost of abatement as μ→1 ($ tCO₂⁻¹)
 - `θ₂` = abatement cost exponent (θ₂=2 gives quadratic cost function)
-- `μ_max` = maximum allowed abatement fraction (cap on μ)
+- `μ_max(t)` = maximum allowed abatement fraction (cap on μ)
 
-The calculated μ is capped at μ_max. Values of μ_max > 1 allow for carbon dioxide removal (negative emissions). If μ_max is not specified in the configuration, it defaults to INVERSE_EPSILON (effectively no cap).
+**Abatement Cap Modes:**
+
+When `use_mu_up=false` (default):
+- `μ_max(t)` = INVERSE_EPSILON (effectively no cap)
+
+When `use_mu_up=true`:
+- `μ_max(t)` is determined by linear interpolation from `mu_up_schedule`
+- The `cap_spending_mode` parameter controls what happens when `μ_uncapped > μ_max`:
+  - `"waste"` (default): Proposed spending is still subtracted from output (optimizer learns to avoid overspending)
+  - `"no_waste"`: Only effective spending (for capped μ) is subtracted from output (freed money returns to consumption)
+
+Values of μ_max > 1 allow for carbon dioxide removal (negative emissions).
 
 This formulation differs from Nordhaus in that reducing carbon intensity σ(t) reduces the cost of abating remaining emissions, since there are fewer emissions to abate.
 
@@ -361,10 +375,17 @@ Temperature change is proportional to cumulative carbon dioxide emissions.
 
 **Eq. (2.3) - Actual Emissions:**
 ```
-E(t) = σ(t) · (1 - μ(t)) · Y_gross(t)
-     = (1 - μ(t)) · E_pot(t)
+E_industrial(t) = σ(t) · (1 - μ(t)) · Y_gross(t)
+                = (1 - μ(t)) · E_pot(t)
+
+E_total(t) = E_industrial(t) + E_add(t)
 ```
-This is the actual emissions rate after abatement.
+where:
+- `E_industrial(t)` is the industrial emissions rate after abatement
+- `E_add(t)` is the exogenous emissions additions (e.g., land-use emissions) from the schedule when `use_emissions_additions=true`, or 0 otherwise
+- `E_total(t)` is the total emissions rate used for temperature calculations
+
+The exogenous emissions are NOT affected by the abatement fraction μ(t).
 
 #### 3. Income Distribution and Utility
 
@@ -588,7 +609,12 @@ Climate and abatement parameters:
 | `y_damage_distribution_exponent` | Power-law exponent for income-dependent damage scaling (>0: progressive, <0: regressive, =0: uniform) | - | `y_damage_distribution_exponent` |
 | `k_climate` | Temperature sensitivity to cumulative emissions | °C tCO₂⁻¹ | `k_climate` |
 | `θ₂` | Abatement cost exponent (controls cost curve shape) | - | `theta2` |
-| `μ_max` | Maximum allowed abatement fraction (cap on μ). Values >1 allow carbon removal. Defaults to INVERSE_EPSILON (no cap) if omitted. | - | `mu_max` |
+| `μ_max` | Maximum allowed abatement fraction (cap on μ). Values >1 allow carbon removal. Defaults to INVERSE_EPSILON (no cap) if omitted. Note: When `use_mu_up=true`, this is overridden by the schedule. | - | `mu_max` |
+| `use_mu_up` | Enable time-varying μ cap from schedule. Defaults to false (no schedule cap). | bool | `use_mu_up` |
+| `mu_up_schedule` | List of [year, mu_cap] pairs defining time-varying cap on μ. Linear interpolation between points, flat extrapolation outside range. Required when `use_mu_up=true`. | - | `mu_up_schedule` |
+| `cap_spending_mode` | How to handle spending above μ cap: "waste" (default, spending wasted) or "no_waste" (spending returned to consumption). Only applies when `use_mu_up=true` and cap binds. | string | `cap_spending_mode` |
+| `use_emissions_additions` | Enable exogenous CO₂ emissions (e.g., land-use). Defaults to false (industrial only). | bool | `use_emissions_additions` |
+| `emissions_additions_schedule` | List of [year, E_add] pairs in tCO₂/year. Exogenous emissions NOT affected by abatement. Linear interpolation between points. Required when `use_emissions_additions=true`. | tCO₂ yr⁻¹ | `emissions_additions_schedule` |
 | `Ecum_initial` | Initial cumulative CO2 emissions. Defaults to 0.0 (no prior emissions) if omitted. | tCO₂ | `Ecum_initial` |
 
 Utility and inequality parameters:

@@ -15,7 +15,7 @@ def test_no_waste_implementation():
     """Test cap_spending_mode implementation with debug output."""
 
     print("="*80)
-    print("TEST 1: cap_spending_mode='waste' (default, Ken's Project 1 design)")
+    print("TEST 1: cap_spending_mode='waste' (default)")
     print("="*80)
 
     # Load a config with use_mu_up=True
@@ -212,7 +212,7 @@ def test_no_waste_implementation():
     print(f"    - Total freed budget: {np.sum(results_no_waste['unused_abatement_budget']):.6e}")
     print(f"    - Freed money returns to consumption")
     print(f"  - Baseline (use_mu_up=False): {np.sum(results_uncapped['cap_binding'] > 0.5)} years with binding cap (should be 0)")
-    print(f"  - Default behavior: 'waste' mode (Ken's Project 1 design)")
+    print(f"  - Default behavior: 'waste' mode")
     print()
 
 if __name__ == "__main__":

@@ -296,7 +296,8 @@ Set `use_mu_up` to `true` and provide a `mu_up_schedule` in the `scalar_paramete
         [2200.001, 1.05],
         [2300.0, 1.05],
         [2300.001, 1.0]
-    ]
+    ],
+    "cap_spending_mode": "waste"
 }
 ```
 
@@ -306,6 +307,7 @@ Set `use_mu_up` to `true` and provide a `mu_up_schedule` in the `scalar_paramete
 |-----------|------|---------|-------------|
 | `use_mu_up` | bool | `false` | Enable/disable the μ cap |
 | `mu_up_schedule` | list | (required) | List of `[year, mu_cap]` pairs defining the cap schedule |
+| `cap_spending_mode` | string | `"waste"` | How to handle spending above the cap: `"waste"` or `"no_waste"` |
 
 #### Schedule Format
 
@@ -323,6 +325,81 @@ Example interpretation:
 Values above 1.0 allow carbon dioxide removal (negative emissions).
 
 When `use_mu_up` is `false`, the model sets `mu_max` to a very large value (effectively no cap on abatement).
+
+#### Cap Spending Modes
+
+The `cap_spending_mode` parameter controls what happens when the optimizer proposes more abatement spending than the cap allows:
+
+**`"waste"` mode (default, recommended for optimization)**:
+- Spending above the cap is "wasted" (still subtracted from output/consumption)
+- The optimizer sees the full cost and learns to avoid overspending
+- Matches the design in Barrage & Nordhaus (2024) Project 1
+- Best for optimization as it provides correct economic incentives
+
+**`"no_waste"` mode (alternative)**:
+- Spending above the cap is returned to consumption
+- Only the effective cost (for the capped μ) is subtracted from output
+- Useful for counterfactual analysis where the policy constraint is external
+
+Example enabling no_waste mode:
+```json
+"scalar_parameters": {
+    "use_mu_up": true,
+    "cap_spending_mode": "no_waste",
+    "mu_up_schedule": [[2020, 0.05], [2070, 1.0]]
+}
+```
+
+### Exogenous Emissions Additions
+
+The model supports adding exogenous CO₂ emissions (e.g., land-use emissions, deforestation) that are NOT affected by abatement policies. These emissions are added to the total after industrial emissions abatement.
+
+#### Enabling Emissions Additions
+
+Set `use_emissions_additions` to `true` and provide an `emissions_additions_schedule`:
+
+```json
+"scalar_parameters": {
+    "use_emissions_additions": true,
+    "emissions_additions_schedule": [
+        [2020.0, 10e9],
+        [2050.0, 5e9],
+        [2100.0, 0]
+    ]
+}
+```
+
+#### Configuration Parameters
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `use_emissions_additions` | bool | `false` | Enable/disable exogenous emissions |
+| `emissions_additions_schedule` | list | (required) | List of `[year, E_add]` pairs in tCO₂/year |
+
+#### Schedule Format
+
+The `emissions_additions_schedule` is a list of `[year, E_add]` pairs where `E_add` is in tCO₂/year (total emissions, not per-capita):
+- **Linear interpolation** between points
+- **Flat extrapolation** outside the range
+- Points should be sorted by year (ascending)
+
+Example interpretation:
+- Year 2020: 10 GtCO₂/year of land-use emissions
+- Year 2035: 7.5 GtCO₂/year (interpolated)
+- Year 2100: 0 GtCO₂/year (emissions cease)
+
+#### How It Works
+
+Total emissions are computed as:
+```
+E_total = E_industrial + E_add_total
+```
+
+where:
+- `E_industrial = σ · (1 - μ) · Y_gross · L` (affected by abatement)
+- `E_add_total` (from schedule, NOT affected by abatement)
+
+The exogenous emissions are added after abatement is applied to industrial emissions, ensuring they cannot be reduced through the model's abatement policy.
 
 ### Output Files
 
@@ -450,6 +527,8 @@ coin_equality/
 ├── comparison_utils.py                # Multi-run comparison utilities
 ├── visualization_utils.py             # Unified visualization functions
 ├── test_all_flag_variants.py          # Test policy flag independence
+├── test_no_waste.py                   # Test cap_spending_mode implementation
+├── test_emissions_additions.py        # Test exogenous emissions additions
 ├── plot_utility_ratios.py             # Generate utility ratio diagnostic plots
 ├── test_f-f-f-t-t.json                # Example configuration file
 ├── test_f-f-f-t-f.json                # Example configuration file

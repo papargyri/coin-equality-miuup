@@ -1,32 +1,100 @@
-# Continuation: Planned Future Work
+# Continuation: Implementation Status and Future Work
 
-## 1. Pass mu_max via schedule (like mu_up_schedule)
+## ✅ COMPLETED: Time-Varying μ Cap with Spending Modes (January 2026)
 
-Currently `mu_max` is a scalar parameter in `ScalarParameters`. We need to:
+**Implemented:** Time-varying upper bound on abatement fraction μ with configurable spending behavior.
 
-1. Allow `mu_max` to be specified as a time-varying schedule (list of `[year, value]` pairs), similar to `mu_up_schedule`
-2. Pass the interpolated `mu_max` value from `integrate_model()` to `calculate_tendencies()`
-3. If no schedule is provided, default to `INVERSE_EPSILON` (effectively no cap)
+### Features Added:
+1. **Time-Varying Schedule** (`use_mu_up` + `mu_up_schedule`):
+   - Linear interpolation between `[year, mu_cap]` pairs
+   - Flat extrapolation outside range
+   - Default: `use_mu_up=false` (no schedule cap, uses `mu_max` or INVERSE_EPSILON)
 
-### Implementation approach:
-- Add `mu_max_schedule` field to `ScalarParameters` (optional, list of `[year, mu_max]` pairs)
-- In `integrate_model()`, interpolate `mu_max` for each timestep using linear interpolation (same as `mu_up_schedule`)
-- Pass interpolated value to `calculate_tendencies()` via `mu_up_params` dict (or a new dict)
-- Fall back to `INVERSE_EPSILON` if `mu_max_schedule` is None
+2. **Cap Spending Modes** (`cap_spending_mode`):
+   - `"waste"` (default): Spending above cap is wasted (still subtracted from output)
+     - Optimizer sees full cost and learns to avoid overspending
+     - Matches Barrage & Nordhaus (2024) Project 1 design
+   - `"no_waste"`: Spending above cap returns to consumption
+     - Only effective cost (for capped μ) is subtracted from output
+     - Useful for counterfactual analysis with external policy constraints
 
-## 2. Add CO2 emissions at specified points in time
+3. **Diagnostic Outputs** (when `store_detailed_output=True`):
+   - `mu_uncapped`: μ without cap
+   - `mu_cap`: Schedule value
+   - `mu_final`: Final μ used (min of uncapped, cap, 1.0)
+   - `cap_binding`: Binary indicator (1 if cap binds)
+   - `abateCost_proposed`: Spending from optimization
+   - `abateCost_effective`: Actual spending needed for capped μ
+   - `wasted_abatement_spending`: Proposed - effective
+   - `unused_abatement_budget`: Money returned to consumption (no_waste mode only)
 
-Allow injection of additional CO2 emissions at specified times, independent of economic activity.
+### Files Modified:
+- `parameters.py`: Added `use_mu_up`, `mu_up_schedule`, `cap_spending_mode`
+- `economic_model.py`: Implemented cap logic and spending modes
+- `mu_up.py`: Schedule interpolation functions
+- `test_no_waste.py`: Comprehensive test suite
+- Documentation: `README.md`, `README_DETAIL.md`
 
-### Use cases:
-- Modeling volcanic eruptions or other natural CO2 sources
-- Scenario analysis with pulse emissions
-- Historical emissions not captured by the economic model
+### Configuration Example:
+```json
+{
+  "use_mu_up": true,
+  "cap_spending_mode": "waste",
+  "mu_up_schedule": [[2020, 0.05], [2070, 1.0]]
+}
+```
 
-### Implementation approach:
-- Add `co2_injections` field to configuration: list of `[year, amount_tCO2]` pairs
-- In `integrate_model()`, add injected emissions to `Ecum` at the appropriate timesteps
-- Could be instantaneous pulses or spread over time intervals
+---
+
+## ✅ COMPLETED: Exogenous CO₂ Emissions Additions (January 2026)
+
+**Implemented:** Optional exogenous emissions (e.g., land-use emissions) that are NOT affected by abatement policies.
+
+### Features Added:
+1. **Time-Varying Emissions Schedule** (`use_emissions_additions` + `emissions_additions_schedule`):
+   - List of `[year, E_add]` pairs in tCO₂/year (total, not per-capita)
+   - Linear interpolation between points
+   - Flat extrapolation outside range
+   - Default: `use_emissions_additions=false` (industrial emissions only)
+
+2. **Emissions Calculation**:
+   - `E_industrial = σ · (1 - μ) · Y_gross · L` (affected by abatement)
+   - `E_total = E_industrial + E_add_total` (total for climate calculations)
+   - Exogenous emissions independent of μ(t)
+
+3. **Diagnostic Outputs** (when `store_detailed_output=True`):
+   - `E_industrial`: Industrial emissions after abatement
+   - `E_add_total`: Exogenous emissions from schedule
+   - `E_total`: Total emissions for temperature calculations
+
+### Files Modified:
+- `parameters.py`: Added `use_emissions_additions`, `emissions_additions_schedule`
+- `economic_model.py`: Split emissions into industrial + additions
+- `mu_up.py`: Added `get_emissions_additions()` function
+- `test_emissions_additions.py`: Comprehensive test suite
+- Documentation: `README.md`, `README_DETAIL.md`
+
+### Configuration Example:
+```json
+{
+  "use_emissions_additions": true,
+  "emissions_additions_schedule": [
+    [2020, 10e9],
+    [2050, 5e9],
+    [2100, 0]
+  ]
+}
+```
+
+### Use Cases:
+- Land-use change emissions (deforestation, agriculture)
+- Non-industrial emissions not captured by σ(t)
+- Scenario analysis with declining exogenous emissions
+- Historical emissions from sources outside the economic model
+
+---
+
+## FUTURE WORK
 
 ## 3. Add money available for consumption at specified points in time
 

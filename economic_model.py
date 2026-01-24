@@ -428,7 +428,6 @@ def calculate_tendencies(state, params,
 
         # Apply cap spending mode to determine actual cost used in accounting
         if cap_spending_mode == "waste":
-            # WASTE MODE (default, Ken's Project 1 design):
             # In waste mode, effective cost equals proposed cost by definition
             # Extra spending beyond cap is "wasted" (still subtracted from output)
             # Optimizer will learn to avoid overspending
